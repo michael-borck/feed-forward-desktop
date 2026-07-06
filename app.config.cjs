@@ -7,10 +7,7 @@ module.exports = {
   productName: "FeedForward Desktop",
 
   // --- Python sidecar (feedforward-practice serve) ---------------------------
-  // TODO: switch to "feedforward-practice[serve]==0.1.0" once published to PyPI.
-  sidecarPipSpecs: [
-    "feedforward-practice[serve] @ git+https://github.com/michael-borck/feed-forward.git@main#subdirectory=practice",
-  ],
+  sidecarPipSpecs: ["feedforward-practice[serve]==0.1.0"],
   serveCommand: "feedforward-practice serve --port {PORT} --host {HOST}",
   healthPath: "/health",
   defaultPort: 8022,
