@@ -2,7 +2,10 @@
   "name": "feed-forward-desktop",
   "version": "0.1.0",
   "description": "Private practice feedback on assignment drafts \u2014 open an instructor rubric, use your own model endpoint, keep everything on your machine.",
-  "author": "Michael Borck",
+  "author": {
+    "name": "Michael Borck",
+    "email": "michael.borck@curtin.edu.au"
+  },
   "license": "MIT",
   "main": "out/main/main.js",
   "scripts": {
