@@ -1,0 +1,5 @@
+{"formatVersion": "1.0", "kind": "ffrubric",
+ "assignment": {"title": "Essay 1 - Critical Analysis", "description": "Analyse the assigned text.", "maxDrafts": 3},
+ "rubric": {"categories": [
+   {"name": "Argument", "description": "Thesis quality", "weight": 40},
+   {"name": "Evidence", "description": "Use of sources", "weight": 60}]}}
