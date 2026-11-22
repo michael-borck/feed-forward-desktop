@@ -19,7 +19,7 @@ import CONFIG from "../app.config.cjs";
 const isDev = !app.isPackaged;
 let win: BrowserWindow | null = null;
 let sidecar: SidecarManager | null = null;
-let analyser: SidecarManager | null = null;
+let analysers: SidecarManager[] = [];
 
 // E2E tests (scripts/e2e.mjs) point the app at a throwaway profile so they
 // never touch the user's real engine install, secrets, or history.
@@ -74,12 +74,12 @@ function send(channel: string, payload: unknown): void {
 async function boot(): Promise<void> {
   const p = paths();
 
-  // 1. First run: install the engine (+ the signals analyser when enabled),
+  // 1. First run: install the engine (+ the signal analysers when enabled),
   //    streaming progress to the renderer modal.
   if (!isInstalled(p)) {
     send("setup:phase", "installing");
     const specs = [...CONFIG.sidecarPipSpecs];
-    if (CONFIG.signals?.enabled) specs.push(CONFIG.signals.pipSpec);
+    if (CONFIG.signals?.enabled) specs.push(...CONFIG.signals.pipSpecs);
     try {
       await runFirstRun(p, specs, CONFIG.python, (line) => send("setup:log", line));
     } catch (e) {
@@ -88,43 +88,44 @@ async function boot(): Promise<void> {
     }
   }
 
-  // 2. Optional signals analyser (document-analyser) — never fatal: the
-  //    engine degrades to no-signals when it is absent. Started before the
-  //    engine so its URL can be handed over via env.
+  // 2. Optional signal analysers — never fatal: the engine degrades to
+  //    no-signals when one is absent. Started before the engine so their
+  //    URLs can be handed over via env.
+  const analyserEnv: Record<string, string> = {};
   if (CONFIG.signals?.enabled) {
-    analyser = new SidecarManager({
-      venvDir: venvDir(p),
-      serveCommand: CONFIG.signals.serveCommand,
-      healthPath: CONFIG.signals.healthPath,
-      defaultPort: CONFIG.signals.defaultPort,
-      // document-analyser doesn't gate on a token; the env var is set but
-      // unconsumed (SidecarManager always injects one).
-      authTokenEnv: "FEEDFORWARD_ANALYSER_AUTH_TOKEN",
-      // cold start downloads NLTK models before serving — give it headroom
-      startupTimeoutMs: 180_000,
-    });
-    analyser.on("log", (l: string) => send("sidecar:log", `[signals] ${l}`));
-    try {
-      await analyser.start();
-    } catch (e) {
-      send("sidecar:log", `[signals] analyser unavailable: ${String(e)}`);
-      analyser = null; // engine runs without signals
+    for (const analyser of CONFIG.signals.analysers) {
+      const manager = new SidecarManager({
+        venvDir: venvDir(p),
+        serveCommand: analyser.serveCommand,
+        healthPath: analyser.healthPath,
+        defaultPort: analyser.defaultPort,
+        // the analysers don't gate on a token; the env var is set but
+        // unconsumed (SidecarManager always injects one).
+        authTokenEnv: "FEEDFORWARD_ANALYSER_AUTH_TOKEN",
+        startupTimeoutMs: analyser.startupTimeoutMs,
+      });
+      manager.on("log", (l: string) => send("sidecar:log", `[signals] ${l}`));
+      try {
+        await manager.start();
+        analyserEnv[analyser.env] = manager.url;
+      } catch (e) {
+        send("sidecar:log", `[signals] ${analyser.env} unavailable: ${String(e)}`);
+        continue; // engine runs without this analyser's signals
+      }
+      analysers.push(manager);
     }
   }
 
-  // 3. Start + supervise the engine sidecar. The analyser URL is baked in at
-  //    boot; if the analyser later restarts on a different port, signals
-  //    silently stop (the engine treats an unreachable analyser as no data).
+  // 3. Start + supervise the engine sidecar. Analyser URLs are baked in at
+  //    boot; if one later restarts on a different port, its signals silently
+  //    stop (the engine treats an unreachable analyser as no data).
   sidecar = new SidecarManager({
     venvDir: venvDir(p),
     serveCommand: CONFIG.serveCommand,
     healthPath: CONFIG.healthPath,
     defaultPort: CONFIG.defaultPort,
     authTokenEnv: CONFIG.authTokenEnv,
-    extraEnv: {
-      ...CONFIG.sidecarEnv,
-      ...(analyser ? { FEEDFORWARD_PRACTICE_DOCUMENT_ANALYSER_URL: analyser.url } : {}),
-    },
+    extraEnv: { ...CONFIG.sidecarEnv, ...analyserEnv },
   });
   sidecar.on("status", (s) => send("sidecar:status", s));
   sidecar.on("log", (l: string) => send("sidecar:log", l));
@@ -258,7 +259,7 @@ function registerIpc(): void {
 }
 
 async function shutdown(): Promise<void> {
-  if (analyser) await analyser.stop();
+  for (const analyser of analysers) await analyser.stop();
   if (sidecar) await sidecar.stop();
 }
 

@@ -7,24 +7,37 @@ module.exports = {
   productName: "FeedForward Desktop",
 
   // --- Python sidecar (feedforward-practice serve) ---------------------------
-  sidecarPipSpecs: ["feedforward-practice[serve,documents]==0.4.0"],
+  sidecarPipSpecs: ["feedforward-practice[serve,documents]==0.5.0"],
   serveCommand: "feedforward-practice serve --port {PORT} --host {HOST}",
   healthPath: "/health",
   defaultPort: 8022,
   authTokenEnv: "FEEDFORWARD_PRACTICE_AUTH_TOKEN",
 
-  // --- Objective signals (document-analyser sidecar) -------------------------
-  // A second localhost engine: readability/structure measures from the
-  // document-analyser are added to the feedback prompt as context ("signals
-  // are evidence alongside the LLM, never a score" — family rule, ADR 012).
-  // The analyser degrades gracefully: unreachable means no signals, feedback
+  // --- Objective signals (lens analyser sidecars) ----------------------------
+  // Local analyser engines whose objective measures are added to the feedback
+  // prompt as context ("signals are evidence alongside the LLM, never a
+  // score" — family rule, ADR 012). Each analyser is a supervised sidecar in
+  // the same venv; each hands its URL to the engine via the env var named in
+  // its `env`. All degrade gracefully: unreachable means no signals, feedback
   // still runs. Flip enabled:false to skip the extra first-run download.
   signals: {
     enabled: true,
-    pipSpec: "document-analyser==0.10.0",
-    serveCommand: "document-analyser serve --port {PORT} --host {HOST}",
-    healthPath: "/health",
-    defaultPort: 8023,
+    pipSpecs: ["document-analyser==0.10.0", "code-analyser==1.4.0"],
+    analysers: [
+      {
+        env: "FEEDFORWARD_PRACTICE_DOCUMENT_ANALYSER_URL",
+        serveCommand: "document-analyser serve --port {PORT} --host {HOST}",
+        healthPath: "/health",
+        defaultPort: 8023,
+        startupTimeoutMs: 180000, // cold start downloads NLTK models
+      },
+      {
+        env: "FEEDFORWARD_PRACTICE_CODE_ANALYSER_URL",
+        serveCommand: "code-analyser serve --port {PORT} --host {HOST}",
+        healthPath: "/health",
+        defaultPort: 8024,
+      },
+    ],
   },
   // Provider (endpoint/key/model) is chosen in the UI per request, not forced
   // via env — students may use local Ollama, a remote Ollama behind a bearer
