@@ -144,4 +144,51 @@ describe("App feedback flow", () => {
       RUN_SETTINGS.pollTimeoutMs = 30 * 60 * 1000;
     }
   }, 20_000);
+
+  it("attaches images when the rubric accepts them and sends them to the engine", async () => {
+    let sentBody: { images?: { name: string }[] } | undefined;
+    api.mockImplementation(async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
+      if (method === "POST" && path === "/practice/feedback") {
+        sentBody = body as typeof sentBody;
+        return { status: 202, body: { id: "job1", status: "running" } };
+      }
+      return { status: 200, body: { status: "done", result: RESULT } };
+    });
+
+    const imageRubric = {
+      ...RUBRIC,
+      assignment: { ...RUBRIC.assignment, submissionTypes: ["text", "image"] },
+    };
+    render(<App />);
+    const file = makeFile("r.ffrubric", JSON.stringify(imageRubric));
+    fireEvent.change(document.querySelector('input[type="file"][accept=".ffrubric,.json"]')!, {
+      target: { files: [file] },
+    });
+    expect((await screen.findAllByText(/vision-capable/)).length).toBeGreaterThan(0);
+
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const imageInput = document.querySelector<HTMLInputElement>('input[type="file"][accept="image/*"]')!;
+    fireEvent.change(imageInput, {
+      target: { files: [new File([png], "fig.png", { type: "image/png" })] },
+    });
+    await screen.findByText("fig.png");
+
+    fireEvent.change(screen.getByPlaceholderText("llama3.2:3b"), { target: { value: "mock-model" } });
+    fireEvent.click(screen.getByRole("button", { name: "Get practice feedback" }) as HTMLButtonElement);
+
+    await screen.findByRole("heading", { level: 2, name: "On the board" }, { timeout: 6000 });
+    expect(sentBody?.images?.[0]?.name).toBe("fig.png");
+    expect(sentBody?.images?.[0]).toHaveProperty("data_base64");
+  }, 15_000);
+
+  it("offers no image attach for text-only rubrics", async () => {
+    render(<App />);
+    const file = makeFile("r.ffrubric", JSON.stringify(RUBRIC));
+    fireEvent.change(document.querySelector('input[type="file"][accept=".ffrubric,.json"]')!, {
+      target: { files: [file] },
+    });
+    await screen.findByText("Essay 1 - Critical Analysis");
+    expect(document.querySelector('input[type="file"][accept="image/*"]')).toBeNull();
+    expect(screen.queryByText(/vision-capable/)).toBeNull();
+  });
 });

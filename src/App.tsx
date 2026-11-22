@@ -8,11 +8,15 @@ import { ProviderCard, loadProvider } from "./components/ProviderCard";
 import {
   FeedbackResult,
   HistoryEntry,
+  ImageAttachment,
+  MAX_IMAGES,
   Rubric,
   RUN_SETTINGS,
   appendHistory,
   loadHistory,
   parseRubric,
+  readImageFile,
+  submissionTypes,
 } from "./practice";
 import { T, button, card, input } from "./theme";
 
@@ -34,6 +38,8 @@ export function App() {
   const [rubric, setRubric] = useState<Rubric | null>(null);
   const [rubricError, setRubricError] = useState("");
   const [draft, setDraft] = useState("");
+  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [imageError, setImageError] = useState("");
   const [runs, setRuns] = useState(1);
   const [run, setRun] = useState<RunState>({ kind: "idle" });
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -59,6 +65,8 @@ export function App() {
         setRubric(parsed);
         setRubricError("");
         setHistory(loadHistory(parsed));
+        setImages([]); // a new rubric may not accept the old attachments
+        setImageError("");
         setRun({ kind: "idle" });
       } catch (e) {
         setRubric(null);
@@ -69,6 +77,18 @@ export function App() {
 
   const openDraft = (file: File) => {
     file.text().then(setDraft);
+  };
+
+  const addImages = (files: FileList) => {
+    setImageError("");
+    const room = MAX_IMAGES - images.length;
+    const picked = Array.from(files).slice(0, room);
+    if (Array.from(files).length > room) {
+      setImageError(`At most ${MAX_IMAGES} images per submission`);
+    }
+    Promise.all(picked.map(readImageFile))
+      .then((loaded) => setImages((prev) => [...prev, ...loaded]))
+      .catch((e) => setImageError(e instanceof Error ? e.message : String(e)));
   };
 
   const poll = (jobId: string, currentRubric: Rubric, deadline: number) => {
@@ -103,6 +123,7 @@ export function App() {
         rubric,
         draft_text: draft,
         num_runs: runs,
+        images,
         provider: {
           base_url: provider.base_url,
           api_key: provider.api_key,
@@ -126,12 +147,12 @@ export function App() {
   };
 
   const ready = status.phase === "ready";
+  const types = rubric ? submissionTypes(rubric) : ["text"];
+  const acceptsImages = types.includes("image");
+  const textAllowed = types.includes("text");
+  const hasSubmission = draft.trim().length > 0 || images.length > 0;
   const canRun =
-    ready &&
-    rubric !== null &&
-    draft.trim().length > 0 &&
-    provider.model.trim().length > 0 &&
-    run.kind !== "running";
+    ready && rubric !== null && hasSubmission && provider.model.trim().length > 0 && run.kind !== "running";
   const wordCount = draft.trim() ? draft.trim().split(/\s+/).length : 0;
 
   return (
@@ -158,6 +179,13 @@ export function App() {
         {provider.preset === "local" && <OllamaSetupCard />}
 
         <ProviderCard value={provider} onChange={setProvider} />
+        {rubric !== null && acceptsImages && (
+          <p style={{ fontSize: 12, color: T.textMuted, margin: "-6px 0 0" }}>
+            This assignment accepts image submissions — the model on your chosen
+            endpoint must be vision-capable (e.g. llama3.2-vision on Ollama, or any
+            multimodal cloud model). “List models” above shows what your endpoint offers.
+          </p>
+        )}
 
         <section style={card}>
           <div style={T.label}>Rubric</div>
@@ -190,25 +218,91 @@ export function App() {
 
         <section style={card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <div style={T.label}>Your draft</div>
-            <div style={{ fontSize: 12, color: T.textMuted }}>{wordCount} words</div>
+            <div style={T.label}>Your submission</div>
+            <div style={{ fontSize: 12, color: T.textMuted }}>
+              {textAllowed && `${wordCount} word${wordCount === 1 ? "" : "s"}`}
+              {textAllowed && acceptsImages && images.length > 0 ? " · " : ""}
+              {acceptsImages && images.length > 0
+                ? `${images.length} image${images.length === 1 ? "" : "s"}`
+                : ""}
+            </div>
           </div>
-          <textarea
-            style={{ ...input, marginTop: 10, minHeight: 220, fontFamily: T.serif, fontSize: 15, lineHeight: 1.6 }}
-            value={draft}
-            placeholder="Paste your draft here, or open a .txt / .md file…"
-            onChange={(e) => setDraft(e.target.value)}
-          />
+          {textAllowed && (
+            <textarea
+              style={{ ...input, marginTop: 10, minHeight: 220, fontFamily: T.serif, fontSize: 15, lineHeight: 1.6 }}
+              value={draft}
+              placeholder="Paste your draft here, or open a .txt / .md file…"
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          )}
+          {acceptsImages && (
+            <div style={{ marginTop: textAllowed ? 12 : 10, display: "grid", gap: 8 }}>
+              {images.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {images.map((img) => (
+                    <span
+                      key={img.name}
+                      style={{
+                        ...T.label,
+                        color: T.ink,
+                        border: `1px solid ${T.border}`,
+                        background: "#fff",
+                        borderRadius: 999,
+                        padding: "4px 10px",
+                        textTransform: "none",
+                        letterSpacing: "normal",
+                        fontSize: 12,
+                      }}
+                    >
+                      {img.name}
+                      <button
+                        style={{ marginLeft: 8, cursor: "pointer", border: "none", background: "none", color: T.red }}
+                        onClick={() => setImages((prev) => prev.filter((i) => i.name !== img.name))}
+                        aria-label={`Remove ${img.name}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <label style={{ ...button("secondary"), fontSize: 11 }}>
+                  {images.length ? "Add more images…" : "Attach images…"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      if (e.target.files?.length) addImages(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <span style={{ fontSize: 12, color: T.textMuted }}>
+                  up to {MAX_IMAGES} — the model on your endpoint must be vision-capable
+                </span>
+              </div>
+              {imageError && <div style={{ color: T.red, fontSize: 13 }}>{imageError}</div>}
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
-            <label style={{ ...button("secondary"), fontSize: 11 }}>
-              Open draft file…
-              <input
-                type="file"
-                accept=".txt,.md,.markdown"
-                style={{ display: "none" }}
-                onChange={(e) => e.target.files?.[0] && openDraft(e.target.files[0])}
-              />
-            </label>
+            {textAllowed ? (
+              <label style={{ ...button("secondary"), fontSize: 11 }}>
+                Open draft file…
+                <input
+                  type="file"
+                  accept=".txt,.md,.markdown"
+                  style={{ display: "none" }}
+                  onChange={(e) => e.target.files?.[0] && openDraft(e.target.files[0])}
+                />
+              </label>
+            ) : (
+              <span style={{ fontSize: 12, color: T.textMuted }}>
+                This assignment takes image submissions only.
+              </span>
+            )}
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <label style={{ fontSize: 12, color: T.textMuted }}>
                 Model runs{" "}
@@ -229,7 +323,7 @@ export function App() {
           </div>
           {run.kind === "running" && (
             <p style={{ fontSize: 13, color: T.textMuted, marginTop: 10 }}>
-              Running {runs} model run{runs !== 1 ? "s" : ""} — local models can take a few minutes. Your draft never
+              Running {runs} model run{runs !== 1 ? "s" : ""} — local models can take a few minutes. Your submission never
               leaves this machine except to the endpoint you chose.
             </p>
           )}

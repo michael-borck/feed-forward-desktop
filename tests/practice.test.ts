@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { FeedbackResult, appendHistory, loadHistory, parseRubric } from "../src/practice";
+import {
+  FeedbackResult,
+  appendHistory,
+  loadHistory,
+  parseRubric,
+  readImageFile,
+  submissionTypes,
+} from "../src/practice";
 
 const RUBRIC_JSON = JSON.stringify({
   formatVersion: "1.0",
@@ -36,6 +43,31 @@ describe("parseRubric", () => {
     const noCats = JSON.parse(RUBRIC_JSON);
     noCats.rubric.categories = [];
     expect(() => parseRubric(JSON.stringify(noCats))).toThrow("Rubric has no categories");
+  });
+});
+
+describe("submission types", () => {
+  it("defaults to text when the rubric is silent (contract v1.0)", () => {
+    expect(submissionTypes(parseRubric(RUBRIC_JSON))).toEqual(["text"]);
+  });
+
+  it("reads declared types (contract v1.1)", () => {
+    const withTypes = JSON.parse(RUBRIC_JSON);
+    withTypes.assignment.submissionTypes = ["text", "image"];
+    expect(submissionTypes(parseRubric(JSON.stringify(withTypes)))).toEqual(["text", "image"]);
+  });
+});
+
+describe("readImageFile", () => {
+  it("extracts mime type and base64 payload from a data URL", async () => {
+    const png = Buffer.of(
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    );
+    const file = new File([png], "fig.png", { type: "image/png" });
+    const attachment = await readImageFile(file);
+    expect(attachment.name).toBe("fig.png");
+    expect(attachment.mime_type).toBe("image/png");
+    expect(attachment.data_base64.length).toBeGreaterThan(10);
   });
 });
 

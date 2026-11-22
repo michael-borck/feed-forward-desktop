@@ -9,9 +9,46 @@ export interface RubricCategory {
 export interface Rubric {
   formatVersion: string;
   kind: "ffrubric";
-  assignment: { title: string; description?: string; maxDrafts?: number };
+  assignment: {
+    title: string;
+    description?: string;
+    maxDrafts?: number;
+    /** Contract v1.1: what a student may submit; absent = text only. */
+    submissionTypes?: string[];
+  };
   rubric: { categories: RubricCategory[] };
   source?: { courseCode?: string; courseTitle?: string };
+}
+
+/** Submission kinds this build of the desktop handles (engine manifest parity). */
+export const HANDLED_SUBMISSION_TYPES = ["text", "image"] as const;
+
+export function submissionTypes(rubric: Rubric): string[] {
+  const t = rubric.assignment.submissionTypes;
+  return Array.isArray(t) && t.length > 0 ? t : ["text"];
+}
+
+export interface ImageAttachment {
+  name: string;
+  mime_type: string;
+  data_base64: string;
+}
+
+/** Matches the sidecar API's per-request cap. */
+export const MAX_IMAGES = 8;
+
+/** Read an image file into the base64 shape the engine expects. */
+export function readImageFile(file: File): Promise<ImageAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.onload = () => {
+      const match = /^data:([^;]+);base64,(.*)$/s.exec(String(reader.result));
+      if (!match) return reject(new Error(`Unsupported file: ${file.name}`));
+      resolve({ name: file.name, mime_type: match[1], data_base64: match[2] });
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 export interface Level {
@@ -37,6 +74,7 @@ export interface FeedbackResult {
   runs: number;
   failed_runs: number;
   word_count: number;
+  image_count?: number;
 }
 
 export interface Provider {

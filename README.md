@@ -19,6 +19,33 @@ uv binary and, on first run, installs the Python engine
 into an app-local venv on a uv-managed CPython — no system Python needed — and
 talks to it over an authenticated localhost API (port 8022).
 
+## Architecture: a native app, NOT the website in a wrapper
+
+This desktop app is **not** the FeedForward web app wrapped in
+Electron/Tauri. It is a separate product with its own UI and its own engine
+process:
+
+| | FeedForward (web) | FeedForward Desktop (this repo) |
+|---|---|---|
+| UI | FastHTML/HTMX pages, `app/` (77 py files) | React renderer (`src/`), native menus/dialogs |
+| Engine | In-process (`app/services/feedback_generator.py`) | `feedforward-practice` sidecar: a separate local HTTP process supervised by the Electron main process |
+| Data | SQLite: courses, enrollments, drafts, instructor review | No database — rubric file in, feedback out; history in `localStorage` |
+| Who runs it | An institution (Docker on a server) | The student, on their own machine |
+| Models | Institution-configured providers | Student-chosen endpoint (local Ollama / class server / own key) |
+| Role | The official channel students submit through | Private, unlimited practice *before* submitting ("submit through your unit's FeedForward site as usual") |
+
+What they **share** is the contract, not code: the `.ffrubric` format
+(`shared/ffrubric.schema.json`), the feedback prompt and level bands
+(`shared/feedback-prompt.md`, `shared/levels.json`), which are vendored into
+the `feedforward_practice` package and must stay byte-identical. A change to
+prompt wording or levels is made once in `shared/`, re-vendored, and released
+on PyPI before this app's pin is bumped.
+
+Submission types follow the same contract: `.ffrubric` v1.1 lets an
+assignment declare `assignment.submissionTypes` (default `["text"]`). This
+app currently handles `text` and `image` (multimodal chat); the engine
+rejects kinds it cannot handle with a clear error rather than guessing.
+
 ## Development
 
 ```bash

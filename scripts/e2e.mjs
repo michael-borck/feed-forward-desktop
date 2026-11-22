@@ -11,7 +11,7 @@
  *
  * Usage: npm run e2e   (builds first; needs `npm run fetch:uv` once)
  */
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -25,7 +25,11 @@ const root = path.resolve(here, "..");
 const RUBRIC = {
   formatVersion: "1.0",
   kind: "ffrubric",
-  assignment: { title: "Essay 1 - Critical Analysis", description: "E2E" },
+  assignment: {
+    title: "Essay 1 - Critical Analysis",
+    description: "E2E",
+    submissionTypes: ["text", "image"],
+  },
   rubric: {
     categories: [
       { name: "Argument", description: "Thesis quality", weight: 40 },
@@ -34,15 +38,29 @@ const RUBRIC = {
   },
 };
 
+// 1x1 transparent PNG
+const PNG_1x1 = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
 const fail = (msg) => {
   console.error(`E2E FAIL: ${msg}`);
   process.exitCode = 1;
 };
 
+// A zombie mock from an earlier run would squat the port with stale code.
+try {
+  execSync(`lsof -ti :${MOCK_PORT} | xargs kill 2>/dev/null || true`);
+} catch {
+  /* nobody listening — fine */
+}
+
 const mock = spawn("python3", [path.join(here, "mock_openai.py"), String(MOCK_PORT)], {
   stdio: ["ignore", "pipe", "pipe"],
 });
 mock.stdout.on("data", (b) => process.stdout.write(`[mock] ${b}`));
+mock.stderr.on("data", (b) => process.stderr.write(`[mock:err] ${b}`));
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), "ffd-e2e-"));
 let app;
@@ -68,7 +86,7 @@ try {
   await page.fill('input[placeholder="https://your-server.example/v1"]', `http://127.0.0.1:${MOCK_PORT}/v1`);
   await page.fill('input[placeholder="llama3.2:3b"]', "mock-model");
 
-  // 3. Rubric + draft.
+  // 3. Rubric + draft + image attachment (rubric declares text+image).
   await page.setInputFiles('input[accept=".ffrubric,.json"]', {
     name: "sample.ffrubric",
     mimeType: "application/json",
@@ -79,17 +97,33 @@ try {
     "textarea",
     "A draft with a clear thesis and some analysed evidence for the E2E run.",
   );
+  await page.setInputFiles('input[accept="image/*"]', {
+    name: "figure.png",
+    mimeType: "image/png",
+    buffer: PNG_1x1,
+  });
+  await page.waitForSelector("text=figure.png");
 
   // 4. Run and wait for the aggregated level (0.4*82 + 0.6*74 = 77.2 -> band).
   await page.click('button:has-text("Get practice feedback")');
   await page.waitForSelector('h2:has-text("On the board")', { timeout: 60_000 });
   console.log("[e2e] feedback rendered — level 'On the board'");
 
-  if (pageErrors.length > 0) {
-    fail(`renderer threw: ${pageErrors.join(" | ")}`);
+  // 5. The provider really received the image as a multimodal part.
+  let ok = true;
+  const last = await (await fetch(`http://127.0.0.1:${MOCK_PORT}/__last`)).json();
+  if (last.images !== 1 || !last.model) {
+    fail(`provider did not receive the image: ${JSON.stringify(last)}`);
+    ok = false;
   } else {
-    console.log("E2E PASS");
+    console.log(`[e2e] multimodal payload confirmed (model=${last.model}, images=${last.images})`);
   }
+
+  if (ok && pageErrors.length > 0) {
+    fail(`renderer threw: ${pageErrors.join(" | ")}`);
+    ok = false;
+  }
+  if (ok) console.log("E2E PASS");
 } catch (e) {
   fail(e instanceof Error ? e.message : String(e));
 } finally {
