@@ -169,6 +169,7 @@ export function App() {
         num_runs: runs,
         images,
         documents,
+        include_signals: true,
         provider: {
           base_url: provider.base_url,
           api_key: provider.api_key,

@@ -146,7 +146,7 @@ describe("App feedback flow", () => {
   }, 20_000);
 
   it("attaches images when the rubric accepts them and sends them to the engine", async () => {
-    let sentBody: { images?: { name: string }[] } | undefined;
+    let sentBody: { images?: { name: string }[]; include_signals?: boolean } | undefined;
     api.mockImplementation(async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
       if (method === "POST" && path === "/practice/feedback") {
         sentBody = body as typeof sentBody;
@@ -179,6 +179,7 @@ describe("App feedback flow", () => {
     await screen.findByRole("heading", { level: 2, name: "On the board" }, { timeout: 6000 });
     expect(sentBody?.images?.[0]?.name).toBe("fig.png");
     expect(sentBody?.images?.[0]).toHaveProperty("data_base64");
+    expect(sentBody?.include_signals).toBe(true);
   }, 15_000);
 
   it("offers no image attach for text-only rubrics", async () => {
@@ -193,7 +194,7 @@ describe("App feedback flow", () => {
   });
 
   it("attaches documents when the rubric accepts them and sends them to the engine", async () => {
-    let sentBody: { documents?: { name: string }[] } | undefined;
+    let sentBody: { documents?: { name: string }[]; include_signals?: boolean } | undefined;
     api.mockImplementation(async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
       if (method === "POST" && path === "/practice/feedback") {
         sentBody = body as typeof sentBody;

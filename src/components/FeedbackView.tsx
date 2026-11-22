@@ -37,6 +37,10 @@ export function FeedbackView({ result, history }: { result: FeedbackResult; hist
           {result.runs} model run{result.runs !== 1 ? "s" : ""}
           {result.failed_runs > 0 ? ` · ${result.failed_runs} failed` : ""} · {result.word_count} words
           {result.image_count ? ` · ${result.image_count} image${result.image_count !== 1 ? "s" : ""}` : ""}
+          {result.document_count
+            ? ` · ${result.document_count} document${result.document_count !== 1 ? "s" : ""}`
+            : ""}
+          {result.signals_included ? " · objective signals" : ""}
         </div>
         {result.overall_feedback && (
           <p style={{ color: T.textBody, maxWidth: 560, margin: "12px auto 0", lineHeight: 1.6 }}>

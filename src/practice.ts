@@ -100,6 +100,8 @@ export interface FeedbackResult {
   failed_runs: number;
   word_count: number;
   image_count?: number;
+  document_count?: number;
+  signals_included?: boolean;
 }
 
 export interface Provider {

@@ -77,9 +77,30 @@ try {
   });
   const page = await app.firstWindow();
   page.on("pageerror", (err) => pageErrors.push(String(err)));
+  const consoleLines = [];
+  page.on("console", (msg) => consoleLines.push(`[${msg.type()}] ${msg.text()}`));
+
+  const dumpDiagnostics = async (reason) => {
+    console.error(`--- e2e diagnostics (${reason}) ---`);
+    try {
+      const body = await page.textContent("body");
+      console.error(
+        body?.slice(0, 2000).replace(/\s+\n/g, "\n"),
+      );
+    } catch {
+      /* window gone */
+    }
+    console.error("--- last console messages ---");
+    for (const line of consoleLines.slice(-25)) console.error(line);
+  };
 
   // 1. First run: uv installs managed CPython + the engine (can take minutes).
-  await page.waitForSelector("text=Engine ready", { timeout: 600_000 });
+  await page
+    .waitForSelector("text=Engine ready", { timeout: 600_000 })
+    .catch(async (e) => {
+      await dumpDiagnostics("engine never became ready");
+      throw e;
+    });
   console.log("[e2e] engine ready (first-run install complete)");
 
   // 2. Point the provider at the mock endpoint.

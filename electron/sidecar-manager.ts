@@ -21,6 +21,7 @@ export interface SidecarConfig {
   defaultPort: number;
   authTokenEnv: string; // env var the member reads its bearer token from, e.g. "ASSESSMENT_LENS_AUTH_TOKEN"
   extraEnv?: NodeJS.ProcessEnv;
+  startupTimeoutMs?: number; // health-poll deadline (default 60s; heavy starts want more)
 }
 
 const HOST = "127.0.0.1";
@@ -121,7 +122,7 @@ export class SidecarManager extends EventEmitter {
             resolve();
           })
           .catch(() => {
-            if (Date.now() - start > STARTUP_TIMEOUT_MS) {
+            if (Date.now() - start > (this.cfg.startupTimeoutMs ?? STARTUP_TIMEOUT_MS)) {
               reject(new Error("sidecar startup timed out"));
             } else {
               setTimeout(check, 500);
