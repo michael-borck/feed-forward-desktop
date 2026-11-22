@@ -51,6 +51,31 @@ export function readImageFile(file: File): Promise<ImageAttachment> {
   });
 }
 
+export interface DocumentAttachment {
+  name: string;
+  data_base64: string;
+}
+
+/** Matches the sidecar API's per-request cap. */
+export const MAX_DOCUMENTS = 4;
+
+/** What the engine can extract text from (mirrors its extract.py). */
+export const DOCUMENT_EXTENSIONS = [".pdf", ".docx", ".txt", ".md", ".markdown"];
+
+/** Read a document file (pdf/docx/text) as base64 for the engine to extract. */
+export function readDocumentFile(file: File): Promise<DocumentAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.onload = () => {
+      const match = /^data:[^;]+;base64,(.*)$/s.exec(String(reader.result));
+      if (!match) return reject(new Error(`Could not encode ${file.name}`));
+      resolve({ name: file.name, data_base64: match[1] });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export interface Level {
   label: string;
   color: string;

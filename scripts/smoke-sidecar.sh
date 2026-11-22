@@ -12,7 +12,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SPEC="${1:-feedforward-practice[serve]==0.1.0}"
+SPEC="${1:-feedforward-practice[serve,documents]==0.3.0}"
 SIDE_PORT="${FEEDFORWARD_SMOKE_PORT:-8477}"
 MOCK_PORT="${MOCK_PORT:-8488}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ffd-smoke.XXXXXX")"

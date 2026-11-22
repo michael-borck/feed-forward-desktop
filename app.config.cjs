@@ -7,7 +7,7 @@ module.exports = {
   productName: "FeedForward Desktop",
 
   // --- Python sidecar (feedforward-practice serve) ---------------------------
-  sidecarPipSpecs: ["feedforward-practice[serve]==0.2.0"],
+  sidecarPipSpecs: ["feedforward-practice[serve,documents]==0.3.0"],
   serveCommand: "feedforward-practice serve --port {PORT} --host {HOST}",
   healthPath: "/health",
   defaultPort: 8022,

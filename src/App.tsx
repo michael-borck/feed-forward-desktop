@@ -6,15 +6,18 @@ import { FirstRunModal } from "./components/FirstRunModal";
 import { OllamaSetupCard } from "./components/OllamaSetupCard";
 import { ProviderCard, loadProvider } from "./components/ProviderCard";
 import {
+  DocumentAttachment,
   FeedbackResult,
   HistoryEntry,
   ImageAttachment,
+  MAX_DOCUMENTS,
   MAX_IMAGES,
   Rubric,
   RUN_SETTINGS,
   appendHistory,
   loadHistory,
   parseRubric,
+  readDocumentFile,
   readImageFile,
   submissionTypes,
 } from "./practice";
@@ -31,6 +34,33 @@ type RunState =
 // See RUN_SETTINGS in practice.ts (tests shorten it).
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span
+      style={{
+        ...T.label,
+        color: T.ink,
+        border: `1px solid ${T.border}`,
+        background: "#fff",
+        borderRadius: 999,
+        padding: "4px 10px",
+        textTransform: "none",
+        letterSpacing: "normal",
+        fontSize: 12,
+      }}
+    >
+      {label}
+      <button
+        style={{ marginLeft: 8, cursor: "pointer", border: "none", background: "none", color: T.red }}
+        onClick={onRemove}
+        aria-label={`Remove ${label}`}
+      >
+        ×
+      </button>
+    </span>
+  );
+}
+
 export function App() {
   const [status, setStatus] = useState<SidecarStatus>({ phase: "not-started", url: "" });
   const [setupPhase, setSetupPhase] = useState<string>("");
@@ -39,7 +69,8 @@ export function App() {
   const [rubricError, setRubricError] = useState("");
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
-  const [imageError, setImageError] = useState("");
+  const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
+  const [attachError, setAttachError] = useState("");
   const [runs, setRuns] = useState(1);
   const [run, setRun] = useState<RunState>({ kind: "idle" });
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -66,7 +97,8 @@ export function App() {
         setRubricError("");
         setHistory(loadHistory(parsed));
         setImages([]); // a new rubric may not accept the old attachments
-        setImageError("");
+        setDocuments([]);
+        setAttachError("");
         setRun({ kind: "idle" });
       } catch (e) {
         setRubric(null);
@@ -80,15 +112,27 @@ export function App() {
   };
 
   const addImages = (files: FileList) => {
-    setImageError("");
+    setAttachError("");
     const room = MAX_IMAGES - images.length;
     const picked = Array.from(files).slice(0, room);
     if (Array.from(files).length > room) {
-      setImageError(`At most ${MAX_IMAGES} images per submission`);
+      setAttachError(`At most ${MAX_IMAGES} images per submission`);
     }
     Promise.all(picked.map(readImageFile))
       .then((loaded) => setImages((prev) => [...prev, ...loaded]))
-      .catch((e) => setImageError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => setAttachError(e instanceof Error ? e.message : String(e)));
+  };
+
+  const addDocuments = (files: FileList) => {
+    setAttachError("");
+    const room = MAX_DOCUMENTS - documents.length;
+    const picked = Array.from(files).slice(0, room);
+    if (Array.from(files).length > room) {
+      setAttachError(`At most ${MAX_DOCUMENTS} documents per submission`);
+    }
+    Promise.all(picked.map(readDocumentFile))
+      .then((loaded) => setDocuments((prev) => [...prev, ...loaded]))
+      .catch((e) => setAttachError(e instanceof Error ? e.message : String(e)));
   };
 
   const poll = (jobId: string, currentRubric: Rubric, deadline: number) => {
@@ -124,6 +168,7 @@ export function App() {
         draft_text: draft,
         num_runs: runs,
         images,
+        documents,
         provider: {
           base_url: provider.base_url,
           api_key: provider.api_key,
@@ -149,8 +194,9 @@ export function App() {
   const ready = status.phase === "ready";
   const types = rubric ? submissionTypes(rubric) : ["text"];
   const acceptsImages = types.includes("image");
+  const acceptsDocuments = types.includes("document");
   const textAllowed = types.includes("text");
-  const hasSubmission = draft.trim().length > 0 || images.length > 0;
+  const hasSubmission = draft.trim().length > 0 || images.length > 0 || documents.length > 0;
   const canRun =
     ready && rubric !== null && hasSubmission && provider.model.trim().length > 0 && run.kind !== "running";
   const wordCount = draft.trim() ? draft.trim().split(/\s+/).length : 0;
@@ -220,11 +266,17 @@ export function App() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <div style={T.label}>Your submission</div>
             <div style={{ fontSize: 12, color: T.textMuted }}>
-              {textAllowed && `${wordCount} word${wordCount === 1 ? "" : "s"}`}
-              {textAllowed && acceptsImages && images.length > 0 ? " · " : ""}
-              {acceptsImages && images.length > 0
-                ? `${images.length} image${images.length === 1 ? "" : "s"}`
-                : ""}
+              {[
+                textAllowed && `${wordCount} word${wordCount === 1 ? "" : "s"}`,
+                acceptsDocuments && documents.length > 0
+                  ? `${documents.length} document${documents.length === 1 ? "" : "s"}`
+                  : "",
+                acceptsImages && images.length > 0
+                  ? `${images.length} image${images.length === 1 ? "" : "s"}`
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </div>
           </div>
           {textAllowed && (
@@ -235,56 +287,68 @@ export function App() {
               onChange={(e) => setDraft(e.target.value)}
             />
           )}
-          {acceptsImages && (
-            <div style={{ marginTop: textAllowed ? 12 : 10, display: "grid", gap: 8 }}>
-              {images.length > 0 && (
+          {(acceptsDocuments || acceptsImages) && (
+            <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+              {documents.length > 0 && (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {images.map((img) => (
-                    <span
-                      key={img.name}
-                      style={{
-                        ...T.label,
-                        color: T.ink,
-                        border: `1px solid ${T.border}`,
-                        background: "#fff",
-                        borderRadius: 999,
-                        padding: "4px 10px",
-                        textTransform: "none",
-                        letterSpacing: "normal",
-                        fontSize: 12,
-                      }}
-                    >
-                      {img.name}
-                      <button
-                        style={{ marginLeft: 8, cursor: "pointer", border: "none", background: "none", color: T.red }}
-                        onClick={() => setImages((prev) => prev.filter((i) => i.name !== img.name))}
-                        aria-label={`Remove ${img.name}`}
-                      >
-                        ×
-                      </button>
-                    </span>
+                  {documents.map((doc) => (
+                    <Chip
+                      key={doc.name}
+                      label={doc.name}
+                      onRemove={() => setDocuments((prev) => prev.filter((d) => d.name !== doc.name))}
+                    />
                   ))}
                 </div>
               )}
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <label style={{ ...button("secondary"), fontSize: 11 }}>
-                  {images.length ? "Add more images…" : "Attach images…"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    style={{ display: "none" }}
-                    onChange={(e) => {
-                      if (e.target.files?.length) addImages(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-                <span style={{ fontSize: 12, color: T.textMuted }}>
-                  up to {MAX_IMAGES} — the model on your endpoint must be vision-capable
-                </span>
+              {images.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {images.map((img) => (
+                    <Chip
+                      key={img.name}
+                      label={img.name}
+                      onRemove={() => setImages((prev) => prev.filter((i) => i.name !== img.name))}
+                    />
+                  ))}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                {acceptsDocuments && (
+                  <label style={{ ...button("secondary"), fontSize: 11 }}>
+                    {documents.length ? "Add more documents…" : "Attach documents…"}
+                    <input
+                      type="file"
+                      accept=".pdf,.docx,.txt,.md,.markdown"
+                      multiple
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        if (e.target.files?.length) addDocuments(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                )}
+                {acceptsImages && (
+                  <label style={{ ...button("secondary"), fontSize: 11 }}>
+                    {images.length ? "Add more images…" : "Attach images…"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        if (e.target.files?.length) addImages(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                )}
+                {acceptsImages && (
+                  <span style={{ fontSize: 12, color: T.textMuted }}>
+                    images need a vision-capable model · up to {MAX_IMAGES}
+                  </span>
+                )}
               </div>
-              {imageError && <div style={{ color: T.red, fontSize: 13 }}>{imageError}</div>}
+              {attachError && <div style={{ color: T.red, fontSize: 13 }}>{attachError}</div>}
             </div>
           )}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
@@ -300,7 +364,8 @@ export function App() {
               </label>
             ) : (
               <span style={{ fontSize: 12, color: T.textMuted }}>
-                This assignment takes image submissions only.
+                This assignment takes {types.join(", ")} submissions — this version of the app can
+                practise text, documents and images.
               </span>
             )}
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>

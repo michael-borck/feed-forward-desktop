@@ -191,4 +191,40 @@ describe("App feedback flow", () => {
     expect(document.querySelector('input[type="file"][accept="image/*"]')).toBeNull();
     expect(screen.queryByText(/vision-capable/)).toBeNull();
   });
+
+  it("attaches documents when the rubric accepts them and sends them to the engine", async () => {
+    let sentBody: { documents?: { name: string }[] } | undefined;
+    api.mockImplementation(async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
+      if (method === "POST" && path === "/practice/feedback") {
+        sentBody = body as typeof sentBody;
+        return { status: 202, body: { id: "job1", status: "running" } };
+      }
+      return { status: 200, body: { status: "done", result: RESULT } };
+    });
+
+    const docRubric = {
+      ...RUBRIC,
+      assignment: { ...RUBRIC.assignment, submissionTypes: ["text", "document"] },
+    };
+    render(<App />);
+    fireEvent.change(document.querySelector('input[type="file"][accept=".ffrubric,.json"]')!, {
+      target: { files: [makeFile("r.ffrubric", JSON.stringify(docRubric))] },
+    });
+    await screen.findByText("Essay 1 - Critical Analysis");
+
+    const docInput = document.querySelector<HTMLInputElement>('input[type="file"][accept=".pdf,.docx,.txt,.md,.markdown"]')!;
+    fireEvent.change(docInput, {
+      target: { files: [new File([new Uint8Array([1, 2, 3, 4])], "essay.txt", { type: "text/plain" })] },
+    });
+    await screen.findByText("essay.txt");
+    // no image attach on a document rubric
+    expect(document.querySelector('input[type="file"][accept="image/*"]')).toBeNull();
+
+    fireEvent.change(screen.getByPlaceholderText("llama3.2:3b"), { target: { value: "mock-model" } });
+    fireEvent.click(screen.getByRole("button", { name: "Get practice feedback" }) as HTMLButtonElement);
+
+    await screen.findByRole("heading", { level: 2, name: "On the board" }, { timeout: 6000 });
+    expect(sentBody?.documents?.[0]?.name).toBe("essay.txt");
+    expect(sentBody?.documents?.[0]).toHaveProperty("data_base64");
+  }, 15_000);
 });
