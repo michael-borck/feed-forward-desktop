@@ -1,6 +1,6 @@
 {
   "name": "feed-forward-desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Private practice feedback on assignment drafts — open an instructor rubric, use your own model endpoint, keep everything on your machine.",
   "author": {
     "name": "Michael Borck",
