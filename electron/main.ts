@@ -20,6 +20,10 @@ const isDev = !app.isPackaged;
 let win: BrowserWindow | null = null;
 let sidecar: SidecarManager | null = null;
 
+// E2E tests (scripts/e2e.mjs) point the app at a throwaway profile so they
+// never touch the user's real engine install, secrets, or history.
+if (process.env.FFD_TEST_USER_DATA) app.setPath("userData", process.env.FFD_TEST_USER_DATA);
+
 function paths(): FirstRunPaths {
   return {
     runtimeDir: path.join(app.getPath("userData"), "runtime"),
@@ -38,7 +42,7 @@ function createWindow(): void {
       preload: path.join(__dirname, "../preload/preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false, // preload needs limited node; renderer stays isolated
+      sandbox: true, // preload only uses contextBridge/ipcRenderer — sandbox-safe
     },
   });
   // External links (e.g. ollama.com/download) open in the OS browser, never in
