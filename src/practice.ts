@@ -45,6 +45,14 @@ export interface Provider {
   model: string;
 }
 
+/** Runtime knobs for the run/poll loop. `pollTimeoutMs` is a test seam:
+ *  integration tests shorten the 30-minute deadline instead of faking
+ *  timers (which fight React's scheduler). */
+export const RUN_SETTINGS = {
+  pollTimeoutMs: 30 * 60 * 1000,
+  pollIntervalMs: 1500,
+};
+
 export const PRESETS: { id: string; name: string; base_url: string; needsKey: boolean }[] = [
   { id: "local", name: "Local Ollama", base_url: "http://localhost:11434/v1", needsKey: false },
   { id: "remote", name: "Remote Ollama / class server", base_url: "", needsKey: true },

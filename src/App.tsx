@@ -9,6 +9,7 @@ import {
   FeedbackResult,
   HistoryEntry,
   Rubric,
+  RUN_SETTINGS,
   appendHistory,
   loadHistory,
   parseRubric,
@@ -23,8 +24,7 @@ type RunState =
 
 // Generous ceiling for one feedback job (3 local-model runs can take many
 // minutes); past this the UI surfaces an error instead of spinning forever.
-const POLL_TIMEOUT_MS = 30 * 60 * 1000;
-
+// See RUN_SETTINGS in practice.ts (tests shorten it).
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export function App() {
@@ -84,7 +84,10 @@ export function App() {
       } else if (Date.now() > deadline) {
         setRun({ kind: "error", message: "Timed out waiting for the engine — try fewer model runs." });
       } else {
-        pollTimer.current = window.setTimeout(() => poll(jobId, currentRubric, deadline), 1500);
+        pollTimer.current = window.setTimeout(
+          () => poll(jobId, currentRubric, deadline),
+          RUN_SETTINGS.pollIntervalMs,
+        );
       }
     }).catch((e) => {
       setRun({ kind: "error", message: `Lost contact with the engine: ${errText(e)}` });
@@ -108,7 +111,11 @@ export function App() {
       })
       .then((resp) => {
         if (resp.status === 202) {
-          poll((resp.body as { id: string }).id, rubric, Date.now() + POLL_TIMEOUT_MS);
+          poll(
+            (resp.body as { id: string }).id,
+            rubric,
+            Date.now() + RUN_SETTINGS.pollTimeoutMs,
+          );
         } else {
           setRun({ kind: "error", message: `Engine rejected the request (${resp.status})` });
         }
