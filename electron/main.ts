@@ -4,9 +4,10 @@
  * localhost HTTP API (URL + token handed over via IPC) and drives setup/Ollama
  * through the channels below.
  */
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from "electron";
 import { autoUpdater } from "electron-updater";
 import http from "node:http";
+import fs from "node:fs";
 import path from "node:path";
 
 import * as ollama from "./ollama";
@@ -100,7 +101,10 @@ async function boot(): Promise<void> {
 }
 
 /** Proxy a JSON request to the sidecar (renderer -> main -> sidecar): keeps the
- *  bearer token in main and sidesteps CORS. Returns {status, body}. */
+ *  bearer token in main and sidesteps CORS. Returns {status, body}. Times out
+ *  (30s) so a hung sidecar surfaces as an error instead of a stuck UI. */
+const SIDECAR_REQUEST_TIMEOUT_MS = 30_000;
+
 function sidecarRequest(
   method: string,
   reqPath: string,
@@ -116,6 +120,7 @@ function sidecarRequest(
         port: url.port,
         path: url.pathname + url.search,
         method,
+        timeout: SIDECAR_REQUEST_TIMEOUT_MS,
         headers: {
           Authorization: `Bearer ${sidecar.token}`,
           ...(payload ? { "Content-Type": "application/json" } : {}),
@@ -136,9 +141,35 @@ function sidecarRequest(
       },
     );
     req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("sidecar request timed out")));
     if (payload) req.write(payload);
     req.end();
   });
+}
+
+// --- Secrets (e.g. provider API keys) ---------------------------------------
+// Encrypted with Electron safeStorage (OS keychain: Keychain on macOS, DPAPI on
+// Windows, libsecret/kwallet on Linux) and persisted under userData. An empty
+// value deletes. Returns false when encryption is unavailable (the renderer
+// then keeps the value in memory for the session only).
+
+const SECRET_PROVIDER_KEY = "provider_api_key";
+
+function secretsPath(): string {
+  return path.join(app.getPath("userData"), "secrets.json");
+}
+
+function readSecrets(): Record<string, string> {
+  try {
+    return JSON.parse(fs.readFileSync(secretsPath(), "utf8")) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function writeSecrets(secrets: Record<string, string>): void {
+  fs.mkdirSync(path.dirname(secretsPath()), { recursive: true });
+  fs.writeFileSync(secretsPath(), JSON.stringify(secrets, null, 2));
 }
 
 function registerIpc(): void {
@@ -146,6 +177,29 @@ function registerIpc(): void {
   ipcMain.handle("sidecar:request", (_e, method: string, p: string, body?: unknown) =>
     sidecarRequest(method, p, body),
   );
+  ipcMain.handle("secrets:set", (_e, key: string, value: string): boolean => {
+    if (key !== SECRET_PROVIDER_KEY) return false; // fixed, known keys only
+    const secrets = readSecrets();
+    if (!value) {
+      delete secrets[key];
+      writeSecrets(secrets);
+      return true;
+    }
+    if (!safeStorage.isEncryptionAvailable()) return false;
+    secrets[key] = safeStorage.encryptString(value).toString("base64");
+    writeSecrets(secrets);
+    return true;
+  });
+  ipcMain.handle("secrets:get", (_e, key: string): string | null => {
+    if (key !== SECRET_PROVIDER_KEY) return null;
+    const entry = readSecrets()[key];
+    if (!entry) return null;
+    try {
+      return safeStorage.decryptString(Buffer.from(entry, "base64"));
+    } catch {
+      return null; // e.g. keychain entry migrated/rotated — treat as absent
+    }
+  });
   ipcMain.handle("ollama:detect", () => ollama.detect());
   ipcMain.handle("ollama:pull", (_e, model: string) =>
     ollama.pull(model, CONFIG.ollama.recommendedModel, (prog) => send("ollama:progress", prog)),

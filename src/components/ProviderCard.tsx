@@ -1,36 +1,96 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PRESETS, Provider } from "../practice";
 import { T, button, card, input } from "../theme";
 
 const STORE = "ffd-provider";
+const KEY_SECRET = "provider_api_key";
 
-export function loadProvider(): Provider & { preset: string; remember: boolean } {
+export type ProviderSettings = Provider & { preset: string; remember: boolean };
+
+// localStorage never holds the API key — only non-secret fields. The key is
+// encrypted at rest in the OS keychain via main's safeStorage bridge
+// (window.lens.setSecret), or kept in memory for the session if the keychain
+// is unavailable. Pure: reads only (no writes) so StrictMode's double-invoked
+// state initializer is harmless; migration/scrubbing happens in the mount
+// effect below.
+export function loadProvider(): ProviderSettings {
+  const defaults: ProviderSettings = {
+    preset: "local",
+    base_url: PRESETS[0].base_url,
+    api_key: "",
+    model: "",
+    remember: false,
+  };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE) ?? "null");
-    if (saved) return saved;
+    if (saved) return { ...defaults, ...saved };
   } catch {
     /* fall through */
   }
-  return { preset: "local", base_url: PRESETS[0].base_url, api_key: "", model: "", remember: false };
+  return defaults;
 }
 
 export function ProviderCard({
   value,
   onChange,
 }: {
-  value: Provider & { preset: string; remember: boolean };
-  onChange: (p: Provider & { preset: string; remember: boolean }) => void;
+  value: ProviderSettings;
+  onChange: (p: ProviderSettings) => void;
 }) {
   const [models, setModels] = useState<string[]>([]);
-  const [probe, setProbe] = useState<string>("");
+  const [probe, setProbe] = useState("");
+  const [keychain, setKeychain] = useState<"ok" | "unavailable" | "unknown">("unknown");
+  const saveKeyTimer = useRef<number | null>(null);
+  const booted = useRef(false);
 
-  const set = (patch: Partial<typeof value>) => {
+  // One-time: migrate a legacy plaintext key (pre-keychain builds stored it in
+  // localStorage) into the OS keychain and scrub it, or restore a remembered
+  // key from the keychain.
+  useEffect(() => {
+    if (booted.current) return;
+    booted.current = true;
+    void (async () => {
+      if (value.api_key) {
+        const ok = await window.lens.setSecret(KEY_SECRET, value.api_key);
+        setKeychain(ok ? "ok" : "unavailable");
+        if (value.remember) {
+          const { api_key: _k, ...persist } = value;
+          localStorage.setItem(STORE, JSON.stringify(persist)); // scrub
+        } else {
+          localStorage.removeItem(STORE);
+        }
+      } else if (value.remember) {
+        const stored = await window.lens.getSecret(KEY_SECRET);
+        if (stored) onChange({ ...value, api_key: stored });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (saveKeyTimer.current) window.clearTimeout(saveKeyTimer.current);
+    },
+    [],
+  );
+
+  const set = (patch: Partial<ProviderSettings>) => {
     const next = { ...value, ...patch };
     onChange(next);
+    const { api_key, ...persist } = next;
     if (next.remember) {
-      localStorage.setItem(STORE, JSON.stringify(next));
+      localStorage.setItem(STORE, JSON.stringify(persist));
+      // Debounce keychain writes — typing in the key field fires set() per keystroke.
+      if (saveKeyTimer.current) window.clearTimeout(saveKeyTimer.current);
+      saveKeyTimer.current = window.setTimeout(() => {
+        void window.lens.setSecret(KEY_SECRET, api_key).then((ok) => {
+          if (api_key) setKeychain(ok ? "ok" : "unavailable");
+        });
+      }, 400);
     } else {
       localStorage.removeItem(STORE);
+      if (saveKeyTimer.current) window.clearTimeout(saveKeyTimer.current);
+      void window.lens.setSecret(KEY_SECRET, ""); // delete any stored key
     }
   };
 
@@ -127,8 +187,15 @@ export function ProviderCard({
             checked={value.remember}
             onChange={(e) => set({ remember: e.target.checked })}
           />
-          Remember these settings on this computer (the key is stored unencrypted)
+          Remember these settings on this computer
         </label>
+        {value.remember && (
+          <div style={{ fontSize: 12, color: T.textMuted }}>
+            {keychain === "unavailable"
+              ? "Your computer's keychain is unavailable, so the key is kept for this session only (other settings are saved)."
+              : "Your key is stored encrypted in your computer's keychain."}
+          </div>
+        )}
       </div>
     </section>
   );

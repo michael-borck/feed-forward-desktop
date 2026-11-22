@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld("lens", {
   pickFile: (filters?: { name: string; extensions: string[] }[]) =>
     ipcRenderer.invoke("dialog:pickFile", filters),
 
+  // Secrets (provider API key) — encrypted at rest via Electron safeStorage
+  // in the main process; empty value deletes. setSecret resolves false when
+  // the OS keychain is unavailable (keep in memory for the session instead).
+  setSecret: (key: string, value: string) => ipcRenderer.invoke("secrets:set", key, value),
+  getSecret: (key: string) => ipcRenderer.invoke("secrets:get", key),
+
   // First-run setup
   onSetupPhase: (cb: Cb<string>) => on("setup:phase", cb),
   onSetupLog: (cb: Cb<string>) => on("setup:log", cb),

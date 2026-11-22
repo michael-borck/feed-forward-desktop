@@ -27,6 +27,10 @@ export interface LensBridge {
   api(method: string, path: string, body?: unknown): Promise<ApiResponse>;
   pickDir(): Promise<string | null>;
   pickFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
+  /** Persist an encrypted secret (empty value deletes it). Resolves false when
+   *  OS-keychain encryption is unavailable. */
+  setSecret(key: string, value: string): Promise<boolean>;
+  getSecret(key: string): Promise<string | null>;
   onSetupPhase(cb: (phase: string) => void): () => void;
   onSetupLog(cb: (line: string) => void): () => void;
   onSetupError(cb: (err: string) => void): () => void;
