@@ -21,6 +21,12 @@ type RunState =
   | { kind: "error"; message: string }
   | { kind: "done"; result: FeedbackResult };
 
+// Generous ceiling for one feedback job (3 local-model runs can take many
+// minutes); past this the UI surfaces an error instead of spinning forever.
+const POLL_TIMEOUT_MS = 30 * 60 * 1000;
+
+const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
 export function App() {
   const [status, setStatus] = useState<SidecarStatus>({ phase: "not-started", url: "" });
   const [setupPhase, setSetupPhase] = useState<string>("");
@@ -65,7 +71,7 @@ export function App() {
     file.text().then(setDraft);
   };
 
-  const poll = (jobId: string, currentRubric: Rubric) => {
+  const poll = (jobId: string, currentRubric: Rubric, deadline: number) => {
     window.lens.api("GET", `/practice/feedback/${jobId}`).then((resp) => {
       const job = resp.body as { status: string; result?: FeedbackResult; error?: string };
       if (resp.status !== 200) {
@@ -75,14 +81,19 @@ export function App() {
         setHistory(appendHistory(currentRubric, job.result));
       } else if (job.status === "error") {
         setRun({ kind: "error", message: job.error ?? "Unknown error" });
+      } else if (Date.now() > deadline) {
+        setRun({ kind: "error", message: "Timed out waiting for the engine — try fewer model runs." });
       } else {
-        pollTimer.current = window.setTimeout(() => poll(jobId, currentRubric), 1500);
+        pollTimer.current = window.setTimeout(() => poll(jobId, currentRubric, deadline), 1500);
       }
+    }).catch((e) => {
+      setRun({ kind: "error", message: `Lost contact with the engine: ${errText(e)}` });
     });
   };
 
   const start = () => {
     if (!rubric) return;
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
     setRun({ kind: "running" });
     window.lens
       .api("POST", "/practice/feedback", {
@@ -97,10 +108,13 @@ export function App() {
       })
       .then((resp) => {
         if (resp.status === 202) {
-          poll((resp.body as { id: string }).id, rubric);
+          poll((resp.body as { id: string }).id, rubric, Date.now() + POLL_TIMEOUT_MS);
         } else {
           setRun({ kind: "error", message: `Engine rejected the request (${resp.status})` });
         }
+      })
+      .catch((e) => {
+        setRun({ kind: "error", message: `Could not reach the engine: ${errText(e)}` });
       });
   };
 

@@ -64,7 +64,10 @@ export interface HistoryEntry {
   levelLabel: string;
 }
 
-const historyKey = (rubric: Rubric) => `ffd-history:${rubric.assignment.title}`;
+// Course code scopes the history so two assignments with the same title in
+// different units don't share progress. (Namespace bumped when the key changed.)
+const historyKey = (rubric: Rubric) =>
+  `ffd-history2:${rubric.source?.courseCode ? `${rubric.source.courseCode}::` : ""}${rubric.assignment.title}`;
 
 export function loadHistory(rubric: Rubric): HistoryEntry[] {
   try {
@@ -81,6 +84,7 @@ export function appendHistory(rubric: Rubric, result: FeedbackResult): HistoryEn
     overallScore: result.overall.score,
     levelLabel: result.overall.level.label,
   });
-  localStorage.setItem(historyKey(rubric), JSON.stringify(entries.slice(-20)));
-  return entries;
+  const capped = entries.slice(-20);
+  localStorage.setItem(historyKey(rubric), JSON.stringify(capped));
+  return capped;
 }

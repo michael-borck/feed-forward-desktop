@@ -1,6 +1,8 @@
 /**
- * First-run setup — make the app self-contained without a system Python.
- *   1. run the per-OS installer (install.sh / install.ps1): venv + pip the stack
+ * First-run setup — make the app self-contained apart from system Python:
+ *   1. run the per-OS installer (install.sh / install.ps1): venv + pip the
+ *      stack (requires Python 3.11+ on PATH; the stack is pure Python and
+ *      installs in well under a minute)
  *   2. download + SHA-256 verify any models listed in app.config (node, uniform
  *      across OSes; bundled models in resources/models/ skip this)
  *   3. drop a sentinel so subsequent launches skip straight to starting.

@@ -61,8 +61,8 @@ export function OllamaSetupCard() {
       <strong>Local AI (private, on this machine)</strong>
       {phase.kind === "not-running" && (
         <p>
-          Narration uses a local model so nothing leaves your computer. Install
-          Ollama, then re-check.{" "}
+          Practice feedback uses a local model so nothing leaves your computer.
+          Install Ollama, then re-check.{" "}
           <a href="https://ollama.com/download" target="_blank" rel="noreferrer">
             Get Ollama (free)
           </a>

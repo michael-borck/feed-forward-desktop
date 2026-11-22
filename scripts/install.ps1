@@ -47,14 +47,7 @@ if (-not (Test-Path $vpy)) {
 Say "upgrading pip"
 Invoke-Step $vpy @("-m", "pip", "install", "--upgrade", "pip", "--disable-pip-version-check", "-q")
 
-Say "installing CPU-only torch (no CUDA)"
-& $vpy -m pip install --disable-pip-version-check `
-  --index-url https://download.pytorch.org/whl/cpu torch
-if ($LASTEXITCODE -ne 0) {
-  Say "torch CPU index step skipped (will resolve transitively)"
-}
-
-Say "installing: $($PipSpecs -join ' ') - this can take several minutes on first run"
+Say "installing: $($PipSpecs -join ' ')"
 Invoke-Step $vpy (@("-m", "pip", "install", "--disable-pip-version-check") + $PipSpecs)
 
 Say "OK - sidecar environment ready"
