@@ -69,6 +69,30 @@ function findBinary(dir) {
   return null;
 }
 
+function extractArchive(archivePath, extractDir) {
+  // Run the extractor with cwd = the temp root and RELATIVE paths only:
+  // Windows tar chokes on "C:\..." (reads the colon as host:path), and
+  // .zip needs Expand-Archive (GNU tar cannot read zip at all).
+  const cwd = path.dirname(archivePath);
+  const archive = path.basename(archivePath);
+  const out = path.basename(extractDir);
+  if (process.platform === "win32") {
+    const r = spawnSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        `Expand-Archive -Path "${archive}" -DestinationPath "${out}" -Force`,
+      ],
+      { cwd },
+    );
+    if (r.status !== 0) throw new Error(`Expand-Archive failed: ${r.stderr}`);
+  } else {
+    const r = spawnSync("tar", ["-xf", archive, "-C", out], { cwd });
+    if (r.status !== 0) throw new Error(`tar failed: ${r.stderr}`);
+  }
+}
+
 async function fetchTarget(target) {
   const { archive, bin } = ASSETS[target];
   const archivePath = path.join(os.tmpdir(), archive);
@@ -86,9 +110,8 @@ async function fetchTarget(target) {
     throw new Error(`checksum mismatch for ${archive}: expected ${expected}, got ${actual}`);
   }
 
-  // bsdtar (macOS/Windows/Linux CI) handles both .tar.gz and .zip.
-  const extracted = spawnSync("tar", ["-xf", archivePath, "-C", extractDir]);
-  if (extracted.status !== 0) throw new Error(`tar failed: ${extracted.stderr}`);
+  // bsdtar (macOS/Linux CI) handles .tar.gz; Windows uses Expand-Archive.
+  extractArchive(archivePath, extractDir);
 
   const binary = findBinary(extractDir);
   if (!binary) throw new Error(`no uv binary found inside ${archive}`);
