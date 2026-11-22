@@ -13,6 +13,7 @@
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder --config electron-builder.config.js",
     "typecheck": "tsc --noEmit",
+    "fetch:uv": "node scripts/fetch-uv.mjs",
     "test": "vitest run",
     "smoke:sidecar": "scripts/smoke-sidecar.sh"
   },

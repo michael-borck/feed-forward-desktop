@@ -10,12 +10,10 @@ module.exports = {
   directories: { output: "release" },
   compression: "maximum",
   files: ["out/**/*", "package.json"],
-  // The first-run installer scripts and any bundled models ride along as
-  // resources (read at runtime from process.resourcesPath).
-  extraResources: [
-    { from: "scripts", to: "scripts", filter: ["install.sh", "install.ps1"] },
-    { from: "resources/models", to: "models", filter: ["**/*"] },
-  ],
+  // The uv binaries (fetched at CI time by scripts/fetch-uv.mjs) ride along
+  // as resources/bin; first-run uses them to build the sidecar venv on a
+  // uv-managed CPython, so the app needs no system Python.
+  extraResources: [{ from: "resources/bin", to: "bin", filter: ["**/*", "!**/._*"] }],
   afterSign: "scripts/notarize.js",
   publish: { provider: "github", owner: "michael-borck", repo: "feed-forward-desktop" },
 

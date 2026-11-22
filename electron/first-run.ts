@@ -1,37 +1,34 @@
 /**
- * First-run setup — make the app self-contained apart from system Python:
- *   1. run the per-OS installer (install.sh / install.ps1): venv + pip the
- *      stack (requires Python 3.11+ on PATH; the stack is pure Python and
- *      installs in well under a minute)
- *   2. download + SHA-256 verify any models listed in app.config (node, uniform
- *      across OSes; bundled models in resources/models/ skip this)
+ * First-run setup — no system Python required:
+ *   1. use the bundled uv (resources/bin, fetched at package time) to create
+ *      an app-local venv on a uv-managed CPython (UV_PYTHON_INSTALL_DIR under
+ *      userData; UV_PYTHON_PREFERENCE=only-managed keeps us off whatever
+ *      Python, if any, the student has installed)
+ *   2. uv pip install the sidecar stack from PyPI
  *   3. drop a sentinel so subsequent launches skip straight to starting.
  * Progress lines are emitted via `onLog` for the first-run modal.
  */
 import { spawn } from "node:child_process";
-import crypto from "node:crypto";
 import fs from "node:fs";
-import http from "node:http";
-import https from "node:https";
 import path from "node:path";
 
-export interface ModelSpec {
-  url: string;
-  sha256: string;
-  dest: string;
-}
+import { resolveUv } from "./uv-bin";
 
 export interface FirstRunPaths {
-  runtimeDir: string; // app-local: holds the venv + models + sentinel
-  scriptsDir: string; // where install.sh / install.ps1 live (packaged resources)
+  runtimeDir: string; // app-local: holds the venv + managed python + sentinel
+  binDir: string; // packaged uv binaries (resources/bin); dev falls back to PATH
 }
 
 export function venvDir(p: FirstRunPaths): string {
   return path.join(p.runtimeDir, "venv");
 }
-function modelsDir(p: FirstRunPaths): string {
-  return path.join(p.runtimeDir, "models");
+
+function venvPython(p: FirstRunPaths): string {
+  return process.platform === "win32"
+    ? path.join(venvDir(p), "Scripts", "python.exe")
+    : path.join(venvDir(p), "bin", "python");
 }
+
 function sentinel(p: FirstRunPaths): string {
   return path.join(p.runtimeDir, ".installed");
 }
@@ -40,119 +37,47 @@ export function isInstalled(p: FirstRunPaths): boolean {
   return fs.existsSync(sentinel(p));
 }
 
-function runScript(
-  p: FirstRunPaths,
-  pipSpecs: string[],
+function run(
+  cmd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
   onLog: (s: string) => void,
 ): Promise<void> {
-  const isWin = process.platform === "win32";
-  const script = path.join(p.scriptsDir, isWin ? "install.ps1" : "install.sh");
-  const [cmd, args] = isWin
-    ? ["powershell", ["-ExecutionPolicy", "Bypass", "-File", script, venvDir(p), ...pipSpecs]]
-    : ["bash", [script, venvDir(p), ...pipSpecs]];
   return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args as string[], { stdio: ["ignore", "pipe", "pipe"] });
-    proc.stdout.on("data", (b) => onLog(b.toString()));
-    proc.stderr.on("data", (b) => onLog(b.toString()));
+    const proc = spawn(cmd, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+    proc.stdout.on("data", (b) => onLog(b.toString().trimEnd()));
+    proc.stderr.on("data", (b) => onLog(b.toString().trimEnd()));
     proc.on("error", reject);
     proc.on("exit", (code) =>
-      code === 0 ? resolve() : reject(new Error(`installer exited ${code}`)),
+      code === 0 ? resolve() : reject(new Error(`${cmd} exited ${code}`)),
     );
   });
-}
-
-function sha256(file: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const h = crypto.createHash("sha256");
-    const s = fs.createReadStream(file);
-    s.on("data", (d) => h.update(d));
-    s.on("end", () => resolve(h.digest("hex")));
-    s.on("error", reject);
-  });
-}
-
-function download(
-  url: string,
-  dest: string,
-  onLog: (s: string) => void,
-  redirects = 0,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    const client = url.startsWith("https") ? https : http;
-    client
-      .get(url, (res) => {
-        // Model hosts (GitHub releases, Hugging Face) answer with a redirect.
-        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400) {
-          res.resume();
-          const location = res.headers.location;
-          if (!location || redirects >= 5) {
-            reject(new Error(`too many redirects (or none given) for ${url}`));
-            return;
-          }
-          resolve(download(new URL(location, url).toString(), dest, onLog, redirects + 1));
-          return;
-        }
-        if (res.statusCode && res.statusCode >= 400) {
-          reject(new Error(`download ${res.statusCode} for ${url}`));
-          return;
-        }
-        const file = fs.createWriteStream(dest);
-        file.on("error", (e) => reject(e));
-        const total = Number(res.headers["content-length"] ?? 0);
-        let got = 0;
-        let lastPct = -1;
-        res.on("data", (c) => {
-          got += c.length;
-          if (total) {
-            const pct = Math.round((got / total) * 100);
-            if (pct !== lastPct && pct % 5 === 0) {
-              lastPct = pct;
-              onLog(`[models] ${path.basename(dest)} ${pct}%`);
-            }
-          }
-        });
-        res.pipe(file);
-        file.on("finish", () => file.close(() => resolve()));
-      })
-      .on("error", (e) => {
-        fs.rm(dest, { force: true }, () => reject(e));
-      });
-  });
-}
-
-async function ensureModels(
-  p: FirstRunPaths,
-  models: ModelSpec[],
-  onLog: (s: string) => void,
-): Promise<void> {
-  for (const m of models) {
-    const dest = path.join(modelsDir(p), m.dest);
-    if (fs.existsSync(dest) && (await sha256(dest)) === m.sha256) {
-      onLog(`[models] ${m.dest} already present (verified)`);
-      continue;
-    }
-    onLog(`[models] downloading ${m.dest}`);
-    await download(m.url, dest, onLog);
-    const actual = await sha256(dest);
-    if (actual !== m.sha256) {
-      fs.rmSync(dest, { force: true });
-      throw new Error(`checksum mismatch for ${m.dest} (got ${actual})`);
-    }
-    onLog(`[models] ${m.dest} verified`);
-  }
 }
 
 export async function runFirstRun(
   p: FirstRunPaths,
   pipSpecs: string[],
-  models: ModelSpec[],
+  pythonVersion: string,
   onLog: (s: string) => void,
 ): Promise<void> {
   fs.mkdirSync(p.runtimeDir, { recursive: true });
-  onLog("[setup] preparing the analysis engine (first run only)…");
-  await runScript(p, pipSpecs, onLog);
-  await ensureModels(p, models, onLog);
+  const uv = resolveUv(p.binDir);
+  const env = {
+    ...process.env,
+    // Hermetic: always a uv-managed CPython under runtimeDir — never a
+    // student's system interpreter (which may be missing, old, or broken).
+    UV_PYTHON_INSTALL_DIR: path.join(p.runtimeDir, "python"),
+    UV_PYTHON_PREFERENCE: "only-managed",
+  };
+
+  onLog("[setup] preparing the feedback engine (first run only)…");
+  if (!fs.existsSync(venvPython(p))) {
+    onLog(`[setup] installing a private Python ${pythonVersion} (no system Python needed)`);
+    await run(uv, ["venv", venvDir(p), "--python", pythonVersion], env, onLog);
+  }
+  onLog(`[setup] installing ${pipSpecs.join(" ")}`);
+  await run(uv, ["pip", "install", "-p", venvPython(p), ...pipSpecs], env, onLog);
+
   fs.writeFileSync(sentinel(p), new Date().toISOString());
   onLog("[setup] done — the engine is ready.");
 }

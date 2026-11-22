@@ -23,10 +23,10 @@ let sidecar: SidecarManager | null = null;
 function paths(): FirstRunPaths {
   return {
     runtimeDir: path.join(app.getPath("userData"), "runtime"),
-    // dev: out/main -> repo root; prod: packaged under resources/scripts.
-    scriptsDir: isDev
-      ? path.join(app.getAppPath(), "scripts")
-      : path.join(process.resourcesPath, "scripts"),
+    // dev: repo root; prod: packaged under resources/bin (scripts/fetch-uv.mjs).
+    binDir: isDev
+      ? path.join(app.getAppPath(), "resources", "bin")
+      : path.join(process.resourcesPath, "bin"),
   };
 }
 
@@ -73,7 +73,7 @@ async function boot(): Promise<void> {
   if (!isInstalled(p)) {
     send("setup:phase", "installing");
     try {
-      await runFirstRun(p, CONFIG.sidecarPipSpecs, CONFIG.models ?? [], (line) =>
+      await runFirstRun(p, CONFIG.sidecarPipSpecs, CONFIG.python, (line) =>
         send("setup:log", line),
       );
     } catch (e) {

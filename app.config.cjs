@@ -17,8 +17,10 @@ module.exports = {
   // proxy, or their own key on any OpenAI-compatible endpoint.
   sidecarEnv: {},
 
-  // --- Models (fully-offline) ------------------------------------------------
-  models: [],
+  // Managed CPython the bundled uv installs into userData/runtime on first
+  // run (UV_PYTHON_PREFERENCE=only-managed) — no system Python required.
+  // 3.13 matches the interpreter the engine is tested against.
+  python: "3.13",
 
   // --- Local LLM (Ollama) ----------------------------------------------------
   ollama: {

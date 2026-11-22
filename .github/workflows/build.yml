@@ -20,6 +20,7 @@ jobs:
       product-name: Feed Forward
       node-version: '22'
       preflight-command: npm run typecheck
+      sidecar-command: npm run fetch:uv
       package-command: npx electron-builder --$PLATFORM --config electron-builder.config.js --publish always
       notarize-check-command: npx electron-builder --mac zip --arm64 --config electron-builder.config.js --publish never
       notarize-check-artifact-root: release

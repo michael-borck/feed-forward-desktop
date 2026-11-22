@@ -34,8 +34,8 @@ export function FirstRunModal() {
       <div style={{ width: 640, maxWidth: "90vw", background: "#fff", borderRadius: 10, padding: 20 }}>
         <h2 style={{ marginTop: 0, fontSize: 18 }}>Setting up the analysis engine</h2>
         <p style={{ color: "#555", marginTop: 4 }}>
-          First run only — installing the local engine and models. This can take a
-          few minutes and download a lot; everything stays on this machine.
+          First run only — installing a private Python runtime and the feedback
+          engine. This can take a few minutes; everything stays on this machine.
         </p>
         <div
           style={{
@@ -55,8 +55,8 @@ export function FirstRunModal() {
         </div>
         {error && (
           <p style={{ color: "#c62828", marginBottom: 0 }}>
-            Setup failed: {error}. Check your internet connection and that Python 3.11+
-            is installed, then restart the app.
+            Setup failed: {error}. Check your internet connection, then restart
+            the app.
           </p>
         )}
       </div>
