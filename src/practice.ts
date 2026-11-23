@@ -58,13 +58,18 @@ export interface DocumentAttachment {
 
 /** Audio clips ride the same {name, data_base64} shape. */
 export type AudioAttachment = DocumentAttachment;
+export type VideoAttachment = DocumentAttachment;
 
 /** Matches the sidecar API's per-request cap. */
 export const MAX_DOCUMENTS = 4;
 export const MAX_AUDIO = 2;
+export const MAX_VIDEO = 1;
 
 /** Audio formats the speech-analyser transcribes (content sniffed by ffmpeg). */
 export const AUDIO_EXTENSIONS = [".mp3", ".wav", ".m4a", ".ogg", ".webm", ".flac"];
+
+/** Video formats the remote class-server analyser accepts. */
+export const VIDEO_EXTENSIONS = [".mp4", ".mov", ".webm", ".m4v"];
 
 /** Read a file (document or audio) as base64 for the engine to process. */
 export function readAttachment(file: File): Promise<DocumentAttachment> {
@@ -82,6 +87,7 @@ export function readAttachment(file: File): Promise<DocumentAttachment> {
 
 export const readDocumentFile = readAttachment;
 export const readAudioFile = readAttachment;
+export const readVideoFile = readAttachment;
 
 export interface Level {
   label: string;
@@ -109,6 +115,7 @@ export interface FeedbackResult {
   image_count?: number;
   document_count?: number;
   audio_count?: number;
+  video_count?: number;
   signals_included?: boolean;
 }
 

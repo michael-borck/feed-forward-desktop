@@ -253,8 +253,8 @@ describe("App feedback flow", () => {
     expect(sentBody?.documents?.[0]).toHaveProperty("data_base64");
   }, 15_000);
 
-  it("attaches audio when the rubric allows it: ensures the analyser and passes its URL", async () => {
-    let sentBody: { audio?: { name: string }[]; speech_analyser_url?: string } | undefined;
+  it("video rubrics ask for the class server URL and send it with the clip", async () => {
+    let sentBody: { video?: { name: string }[]; video_analyser_url?: string } | undefined;
     api.mockImplementation(async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
       if (method === "POST" && path === "/practice/feedback") {
         sentBody = body as typeof sentBody;
@@ -263,30 +263,30 @@ describe("App feedback flow", () => {
       return { status: 200, body: { status: "done", result: RESULT } };
     });
 
-    const audioRubric = {
+    const videoRubric = {
       ...RUBRIC,
-      assignment: { ...RUBRIC.assignment, submissionTypes: ["audio"] },
+      assignment: { ...RUBRIC.assignment, submissionTypes: ["video"] },
     };
     render(<App />);
     fireEvent.change(document.querySelector('input[type="file"][accept=".ffrubric,.json"]')!, {
-      target: { files: [makeFile("r.ffrubric", JSON.stringify(audioRubric))] },
+      target: { files: [makeFile("r.ffrubric", JSON.stringify(videoRubric))] },
     });
-    await screen.findByText(/transcribed on this machine/);
+    const serverInput = await screen.findByPlaceholderText("https://video-analyser.your-class.example");
+    fireEvent.change(serverInput, { target: { value: "http://class-server:8010" } });
 
-    const audioInput = document.querySelector<HTMLInputElement>(
-      'input[type="file"][accept=".mp3,.wav,.m4a,.ogg,.webm,.flac"]',
-    )!;
-    fireEvent.change(audioInput, {
-      target: { files: [new File([new Uint8Array([1, 2, 3, 4])], "pitch.mp3", { type: "audio/mpeg" })] },
+    const videoInput = document.querySelector<HTMLInputElement>('input[type="file"][accept=".mp4,.mov,.webm,.m4v"]')!;
+    fireEvent.change(videoInput, {
+      target: { files: [new File([new Uint8Array([1, 2, 3, 4])], "pitch.mp4", { type: "video/mp4" })] },
     });
-    await screen.findByText("pitch.mp3");
+    await screen.findByText("pitch.mp4");
 
     fireEvent.change(screen.getByPlaceholderText("llama3.2:3b"), { target: { value: "mock-model" } });
-    fireEvent.click(screen.getByRole("button", { name: "Get practice feedback" }) as HTMLButtonElement);
+    const runButton = screen.getByRole("button", { name: "Get practice feedback" }) as HTMLButtonElement;
+    expect(runButton.disabled).toBe(false); // server URL present enables it
+    fireEvent.click(runButton);
 
     await screen.findByRole("heading", { level: 2, name: "On the board" }, { timeout: 6000 });
-    expect(lens.audioEnsure).toHaveBeenCalled();
-    expect(sentBody?.audio?.[0]?.name).toBe("pitch.mp3");
-    expect(sentBody?.speech_analyser_url).toBe("http://127.0.0.1:8025");
+    expect(sentBody?.video?.[0]?.name).toBe("pitch.mp4");
+    expect(sentBody?.video_analyser_url).toBe("http://class-server:8010");
   }, 15_000);
 });

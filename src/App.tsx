@@ -14,14 +14,17 @@ import {
   MAX_AUDIO,
   MAX_DOCUMENTS,
   MAX_IMAGES,
+  MAX_VIDEO,
   Rubric,
   RUN_SETTINGS,
+  VideoAttachment,
   appendHistory,
   loadHistory,
   parseRubric,
   readAudioFile,
   readDocumentFile,
   readImageFile,
+  readVideoFile,
   submissionTypes,
 } from "./practice";
 import { T, button, card, input } from "./theme";
@@ -74,6 +77,8 @@ export function App() {
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
   const [audio, setAudio] = useState<AudioAttachment[]>([]);
+  const [video, setVideo] = useState<VideoAttachment[]>([]);
+  const [videoServer, setVideoServer] = useState(() => localStorage.getItem("ffd-video-server") ?? "");
   const [audioNote, setAudioNote] = useState("");
   const [attachError, setAttachError] = useState("");
   const [runs, setRuns] = useState(1);
@@ -104,6 +109,7 @@ export function App() {
         setImages([]); // a new rubric may not accept the old attachments
         setDocuments([]);
         setAudio([]);
+        setVideo([]);
         setAudioNote("");
         setAttachError("");
         setRun({ kind: "idle" });
@@ -151,6 +157,18 @@ export function App() {
     }
     Promise.all(picked.map(readAudioFile))
       .then((loaded) => setAudio((prev) => [...prev, ...loaded]))
+      .catch((e) => setAttachError(e instanceof Error ? e.message : String(e)));
+  };
+
+  const addVideo = (files: FileList) => {
+    setAttachError("");
+    const room = MAX_VIDEO - video.length;
+    const picked = Array.from(files).slice(0, room);
+    if (Array.from(files).length > room) {
+      setAttachError(`At most ${MAX_VIDEO} video per submission`);
+    }
+    Promise.all(picked.map(readVideoFile))
+      .then((loaded) => setVideo((prev) => [...prev, ...loaded]))
       .catch((e) => setAttachError(e instanceof Error ? e.message : String(e)));
   };
 
@@ -204,8 +222,10 @@ export function App() {
           images,
           documents,
           audio,
+          video,
           include_signals: true,
           speech_analyser_url: speechUrl,
+          video_analyser_url: videoServer.trim(),
           provider: {
             base_url: provider.base_url,
             api_key: provider.api_key,
@@ -234,11 +254,21 @@ export function App() {
   const acceptsImages = types.includes("image");
   const acceptsDocuments = types.includes("document");
   const acceptsAudio = types.includes("audio");
+  const acceptsVideo = types.includes("video");
   const textAllowed = types.includes("text");
   const hasSubmission =
-    draft.trim().length > 0 || images.length > 0 || documents.length > 0 || audio.length > 0;
+    draft.trim().length > 0 ||
+    images.length > 0 ||
+    documents.length > 0 ||
+    audio.length > 0 ||
+    video.length > 0;
   const canRun =
-    ready && rubric !== null && hasSubmission && provider.model.trim().length > 0 && run.kind !== "running";
+    ready &&
+    rubric !== null &&
+    hasSubmission &&
+    provider.model.trim().length > 0 &&
+    run.kind !== "running" &&
+    (!acceptsVideo || video.length === 0 || videoServer.trim().length > 0);
   const wordCount = draft.trim() ? draft.trim().split(/\s+/).length : 0;
 
   return (
@@ -302,6 +332,26 @@ export function App() {
           {rubricError && <div style={{ color: T.red, fontSize: 13, marginTop: 8 }}>{rubricError}</div>}
         </section>
 
+        {rubric !== null && acceptsVideo && (
+          <section style={card}>
+            <div style={T.label}>Video analysis server</div>
+            <p style={{ fontSize: 13, color: T.textMuted, margin: "8px 0" }}>
+              Video is processed by your class's analysis server (video analysis never runs on
+              your laptop). Enter the URL your instructor shared — the recording is uploaded
+              there for transcription.
+            </p>
+            <input
+              style={input}
+              value={videoServer}
+              placeholder="https://video-analyser.your-class.example"
+              onChange={(e) => {
+                setVideoServer(e.target.value);
+                localStorage.setItem("ffd-video-server", e.target.value.trim());
+              }}
+            />
+          </section>
+        )}
+
         <section style={card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <div style={T.label}>Your submission</div>
@@ -317,6 +367,7 @@ export function App() {
                 acceptsAudio && audio.length > 0
                   ? `${audio.length} recording${audio.length === 1 ? "" : "s"}`
                   : "",
+                acceptsVideo && video.length > 0 ? "1 video" : "",
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -330,7 +381,7 @@ export function App() {
               onChange={(e) => setDraft(e.target.value)}
             />
           )}
-          {(acceptsDocuments || acceptsImages || acceptsAudio) && (
+          {(acceptsDocuments || acceptsImages || acceptsAudio || acceptsVideo) && (
             <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
               {documents.length > 0 && (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -365,7 +416,32 @@ export function App() {
                   ))}
                 </div>
               )}
+              {video.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {video.map((clip) => (
+                    <Chip
+                      key={clip.name}
+                      label={clip.name}
+                      onRemove={() => setVideo((prev) => prev.filter((v) => v.name !== clip.name))}
+                    />
+                  ))}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                {acceptsVideo && (
+                  <label style={{ ...button("secondary"), fontSize: 11 }}>
+                    {video.length ? "Replace video…" : "Attach video…"}
+                    <input
+                      type="file"
+                      accept=".mp4,.mov,.webm,.m4v"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        if (e.target.files?.length) addVideo(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                )}
                 {acceptsAudio && (
                   <label style={{ ...button("secondary"), fontSize: 11 }}>
                     {audio.length ? "Add more audio…" : "Attach audio…"}
@@ -421,6 +497,11 @@ export function App() {
               {acceptsAudio && (
                 <div style={{ fontSize: 12, color: T.textMuted }}>
                   recordings are transcribed on this machine (audio engine installs on first use)
+                </div>
+              )}
+              {acceptsVideo && (
+                <div style={{ fontSize: 12, color: T.textMuted }}>
+                  video is analysed on your class server — enter its URL above before running
                 </div>
               )}
             </div>

@@ -43,6 +43,7 @@ export function FeedbackView({ result, history }: { result: FeedbackResult; hist
           {result.audio_count
             ? ` · ${result.audio_count} recording${result.audio_count !== 1 ? "s" : ""}`
             : ""}
+          {result.video_count ? ` · ${result.video_count} video` : ""}
           {result.signals_included ? " · objective signals" : ""}
         </div>
         {result.overall_feedback && (
