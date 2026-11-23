@@ -40,6 +40,9 @@ export function FeedbackView({ result, history }: { result: FeedbackResult; hist
           {result.document_count
             ? ` · ${result.document_count} document${result.document_count !== 1 ? "s" : ""}`
             : ""}
+          {result.audio_count
+            ? ` · ${result.audio_count} recording${result.audio_count !== 1 ? "s" : ""}`
+            : ""}
           {result.signals_included ? " · objective signals" : ""}
         </div>
         {result.overall_feedback && (

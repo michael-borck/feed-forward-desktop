@@ -54,6 +54,27 @@ function run(
   });
 }
 
+function uvEnv(p: FirstRunPaths): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    // Hermetic: always a uv-managed CPython under runtimeDir — never a
+    // student's system interpreter (which may be missing, old, or broken).
+    UV_PYTHON_INSTALL_DIR: path.join(p.runtimeDir, "python"),
+    UV_PYTHON_PREFERENCE: "only-managed",
+  };
+}
+
+/** Install extra pip specs into the existing sidecar venv (e.g. the audio
+ *  pack, on demand). Streams progress via onLog. */
+export function installSpecs(
+  p: FirstRunPaths,
+  pipSpecs: string[],
+  onLog: (s: string) => void,
+): Promise<void> {
+  const uv = resolveUv(p.binDir);
+  return run(uv, ["pip", "install", "-p", venvPython(p), ...pipSpecs], uvEnv(p), onLog);
+}
+
 export async function runFirstRun(
   p: FirstRunPaths,
   pipSpecs: string[],
@@ -62,13 +83,7 @@ export async function runFirstRun(
 ): Promise<void> {
   fs.mkdirSync(p.runtimeDir, { recursive: true });
   const uv = resolveUv(p.binDir);
-  const env = {
-    ...process.env,
-    // Hermetic: always a uv-managed CPython under runtimeDir — never a
-    // student's system interpreter (which may be missing, old, or broken).
-    UV_PYTHON_INSTALL_DIR: path.join(p.runtimeDir, "python"),
-    UV_PYTHON_PREFERENCE: "only-managed",
-  };
+  const env = uvEnv(p);
 
   onLog("[setup] preparing the feedback engine (first run only)…");
   if (!fs.existsSync(venvPython(p))) {

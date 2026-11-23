@@ -51,6 +51,8 @@ const lens: LensBridge = {
   ollamaDetect: vi.fn(async () => ({ running: false, models: [] })),
   ollamaPull: vi.fn(async () => {}),
   onOllamaProgress: vi.fn(() => () => {}),
+  audioEnsure: vi.fn(async () => "http://127.0.0.1:8025"),
+  onAudioLog: vi.fn(() => () => {}),
   setSecret: vi.fn(async (_key: string, _value: string) => true),
   getSecret: vi.fn(async (_key: string) => null),
 };

@@ -37,6 +37,9 @@ export interface LensBridge {
   ollamaDetect(): Promise<{ running: boolean; models: string[] }>;
   ollamaPull(model: string): Promise<void>;
   onOllamaProgress(cb: (p: OllamaProgress) => void): () => void;
+  /** Install (once) and start the speech-analyser; resolves its local URL. */
+  audioEnsure(): Promise<string>;
+  onAudioLog(cb: (line: string) => void): () => void;
 }
 
 declare global {

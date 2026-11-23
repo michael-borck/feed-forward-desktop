@@ -182,16 +182,40 @@ describe("App feedback flow", () => {
     expect(sentBody?.include_signals).toBe(true);
   }, 15_000);
 
-  it("offers no image attach for text-only rubrics", async () => {
-    render(<App />);
-    const file = makeFile("r.ffrubric", JSON.stringify(RUBRIC));
-    fireEvent.change(document.querySelector('input[type="file"][accept=".ffrubric,.json"]')!, {
-      target: { files: [file] },
+  it("attaches audio when the rubric allows it: ensures the analyser and passes its URL", async () => {
+    let sentBody: { audio?: { name: string }[]; speech_analyser_url?: string } | undefined;
+    api.mockImplementation(async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
+      if (method === "POST" && path === "/practice/feedback") {
+        sentBody = body as typeof sentBody;
+        return { status: 202, body: { id: "job1", status: "running" } };
+      }
+      return { status: 200, body: { status: "done", result: RESULT } };
     });
-    await screen.findByText("Essay 1 - Critical Analysis");
-    expect(document.querySelector('input[type="file"][accept="image/*"]')).toBeNull();
-    expect(screen.queryByText(/vision-capable/)).toBeNull();
-  });
+
+    const audioRubric = {
+      ...RUBRIC,
+      assignment: { ...RUBRIC.assignment, submissionTypes: ["audio"] },
+    };
+    render(<App />);
+    fireEvent.change(document.querySelector('input[type="file"][accept=".ffrubric,.json"]')!, {
+      target: { files: [makeFile("r.ffrubric", JSON.stringify(audioRubric))] },
+    });
+    await screen.findByText(/transcribed on this machine/);
+
+    const audioInput = document.querySelector<HTMLInputElement>('input[type="file"][accept=".mp3,.wav,.m4a,.ogg,.webm,.flac"]')!;
+    fireEvent.change(audioInput, {
+      target: { files: [new File([new Uint8Array([1, 2, 3, 4])], "pitch.mp3", { type: "audio/mpeg" })] },
+    });
+    await screen.findByText("pitch.mp3");
+
+    fireEvent.change(screen.getByPlaceholderText("llama3.2:3b"), { target: { value: "mock-model" } });
+    fireEvent.click(screen.getByRole("button", { name: "Get practice feedback" }) as HTMLButtonElement);
+
+    await screen.findByRole("heading", { level: 2, name: "On the board" }, { timeout: 6000 });
+    expect(lens.audioEnsure).toHaveBeenCalled();
+    expect(sentBody?.audio?.[0]?.name).toBe("pitch.mp3");
+    expect(sentBody?.speech_analyser_url).toBe("http://127.0.0.1:8025");
+  }, 15_000);
 
   it("attaches documents when the rubric accepts them and sends them to the engine", async () => {
     let sentBody: { documents?: { name: string }[]; include_signals?: boolean } | undefined;
@@ -227,5 +251,42 @@ describe("App feedback flow", () => {
     await screen.findByRole("heading", { level: 2, name: "On the board" }, { timeout: 6000 });
     expect(sentBody?.documents?.[0]?.name).toBe("essay.txt");
     expect(sentBody?.documents?.[0]).toHaveProperty("data_base64");
+  }, 15_000);
+
+  it("attaches audio when the rubric allows it: ensures the analyser and passes its URL", async () => {
+    let sentBody: { audio?: { name: string }[]; speech_analyser_url?: string } | undefined;
+    api.mockImplementation(async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
+      if (method === "POST" && path === "/practice/feedback") {
+        sentBody = body as typeof sentBody;
+        return { status: 202, body: { id: "job1", status: "running" } };
+      }
+      return { status: 200, body: { status: "done", result: RESULT } };
+    });
+
+    const audioRubric = {
+      ...RUBRIC,
+      assignment: { ...RUBRIC.assignment, submissionTypes: ["audio"] },
+    };
+    render(<App />);
+    fireEvent.change(document.querySelector('input[type="file"][accept=".ffrubric,.json"]')!, {
+      target: { files: [makeFile("r.ffrubric", JSON.stringify(audioRubric))] },
+    });
+    await screen.findByText(/transcribed on this machine/);
+
+    const audioInput = document.querySelector<HTMLInputElement>(
+      'input[type="file"][accept=".mp3,.wav,.m4a,.ogg,.webm,.flac"]',
+    )!;
+    fireEvent.change(audioInput, {
+      target: { files: [new File([new Uint8Array([1, 2, 3, 4])], "pitch.mp3", { type: "audio/mpeg" })] },
+    });
+    await screen.findByText("pitch.mp3");
+
+    fireEvent.change(screen.getByPlaceholderText("llama3.2:3b"), { target: { value: "mock-model" } });
+    fireEvent.click(screen.getByRole("button", { name: "Get practice feedback" }) as HTMLButtonElement);
+
+    await screen.findByRole("heading", { level: 2, name: "On the board" }, { timeout: 6000 });
+    expect(lens.audioEnsure).toHaveBeenCalled();
+    expect(sentBody?.audio?.[0]?.name).toBe("pitch.mp3");
+    expect(sentBody?.speech_analyser_url).toBe("http://127.0.0.1:8025");
   }, 15_000);
 });

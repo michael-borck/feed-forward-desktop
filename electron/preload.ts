@@ -44,4 +44,8 @@ contextBridge.exposeInMainWorld("lens", {
   ollamaPull: (model: string) => ipcRenderer.invoke("ollama:pull", model),
   onOllamaProgress: (cb: Cb<{ status: string; percent: number | null }>) =>
     on("ollama:progress", cb),
+
+  // Audio pack (speech-analyser) — installed on demand; resolves its URL
+  audioEnsure: () => ipcRenderer.invoke("audio:ensure") as Promise<string>,
+  onAudioLog: (cb: Cb<string>) => on("audio:log", cb),
 });

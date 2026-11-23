@@ -6,10 +6,12 @@ import { FirstRunModal } from "./components/FirstRunModal";
 import { OllamaSetupCard } from "./components/OllamaSetupCard";
 import { ProviderCard, loadProvider } from "./components/ProviderCard";
 import {
+  AudioAttachment,
   DocumentAttachment,
   FeedbackResult,
   HistoryEntry,
   ImageAttachment,
+  MAX_AUDIO,
   MAX_DOCUMENTS,
   MAX_IMAGES,
   Rubric,
@@ -17,6 +19,7 @@ import {
   appendHistory,
   loadHistory,
   parseRubric,
+  readAudioFile,
   readDocumentFile,
   readImageFile,
   submissionTypes,
@@ -70,6 +73,8 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
+  const [audio, setAudio] = useState<AudioAttachment[]>([]);
+  const [audioNote, setAudioNote] = useState("");
   const [attachError, setAttachError] = useState("");
   const [runs, setRuns] = useState(1);
   const [run, setRun] = useState<RunState>({ kind: "idle" });
@@ -98,6 +103,8 @@ export function App() {
         setHistory(loadHistory(parsed));
         setImages([]); // a new rubric may not accept the old attachments
         setDocuments([]);
+        setAudio([]);
+        setAudioNote("");
         setAttachError("");
         setRun({ kind: "idle" });
       } catch (e) {
@@ -135,6 +142,18 @@ export function App() {
       .catch((e) => setAttachError(e instanceof Error ? e.message : String(e)));
   };
 
+  const addAudio = (files: FileList) => {
+    setAttachError("");
+    const room = MAX_AUDIO - audio.length;
+    const picked = Array.from(files).slice(0, room);
+    if (Array.from(files).length > room) {
+      setAttachError(`At most ${MAX_AUDIO} recordings per submission`);
+    }
+    Promise.all(picked.map(readAudioFile))
+      .then((loaded) => setAudio((prev) => [...prev, ...loaded]))
+      .catch((e) => setAttachError(e instanceof Error ? e.message : String(e)));
+  };
+
   const poll = (jobId: string, currentRubric: Rubric, deadline: number) => {
     window.lens.api("GET", `/practice/feedback/${jobId}`).then((resp) => {
       const job = resp.body as { status: string; result?: FeedbackResult; error?: string };
@@ -162,20 +181,38 @@ export function App() {
     if (!rubric) return;
     if (pollTimer.current) window.clearTimeout(pollTimer.current);
     setRun({ kind: "running" });
-    window.lens
-      .api("POST", "/practice/feedback", {
-        rubric,
-        draft_text: draft,
-        num_runs: runs,
-        images,
-        documents,
-        include_signals: true,
-        provider: {
-          base_url: provider.base_url,
-          api_key: provider.api_key,
-          model: provider.model,
-        },
-      })
+
+    // Audio needs the on-demand speech-analyser: install/start it first and
+    // pass its URL per-request (the engine process predates the analyser).
+    const prepareAudio =
+      audio.length > 0
+        ? (setAudioNote("Preparing the audio engine (one-time install)…"),
+          window.lens
+            .audioEnsure()
+            .catch((e) => {
+              throw new Error(`Audio engine unavailable: ${errText(e)}`);
+            })
+            .finally(() => setAudioNote("")))
+        : Promise.resolve("");
+
+    prepareAudio
+      .then((speechUrl) =>
+        window.lens.api("POST", "/practice/feedback", {
+          rubric,
+          draft_text: draft,
+          num_runs: runs,
+          images,
+          documents,
+          audio,
+          include_signals: true,
+          speech_analyser_url: speechUrl,
+          provider: {
+            base_url: provider.base_url,
+            api_key: provider.api_key,
+            model: provider.model,
+          },
+        }),
+      )
       .then((resp) => {
         if (resp.status === 202) {
           poll(
@@ -196,8 +233,10 @@ export function App() {
   const types = rubric ? submissionTypes(rubric) : ["text"];
   const acceptsImages = types.includes("image");
   const acceptsDocuments = types.includes("document");
+  const acceptsAudio = types.includes("audio");
   const textAllowed = types.includes("text");
-  const hasSubmission = draft.trim().length > 0 || images.length > 0 || documents.length > 0;
+  const hasSubmission =
+    draft.trim().length > 0 || images.length > 0 || documents.length > 0 || audio.length > 0;
   const canRun =
     ready && rubric !== null && hasSubmission && provider.model.trim().length > 0 && run.kind !== "running";
   const wordCount = draft.trim() ? draft.trim().split(/\s+/).length : 0;
@@ -275,6 +314,9 @@ export function App() {
                 acceptsImages && images.length > 0
                   ? `${images.length} image${images.length === 1 ? "" : "s"}`
                   : "",
+                acceptsAudio && audio.length > 0
+                  ? `${audio.length} recording${audio.length === 1 ? "" : "s"}`
+                  : "",
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -288,7 +330,7 @@ export function App() {
               onChange={(e) => setDraft(e.target.value)}
             />
           )}
-          {(acceptsDocuments || acceptsImages) && (
+          {(acceptsDocuments || acceptsImages || acceptsAudio) && (
             <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
               {documents.length > 0 && (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -312,7 +354,33 @@ export function App() {
                   ))}
                 </div>
               )}
+              {audio.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {audio.map((clip) => (
+                    <Chip
+                      key={clip.name}
+                      label={clip.name}
+                      onRemove={() => setAudio((prev) => prev.filter((a) => a.name !== clip.name))}
+                    />
+                  ))}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                {acceptsAudio && (
+                  <label style={{ ...button("secondary"), fontSize: 11 }}>
+                    {audio.length ? "Add more audio…" : "Attach audio…"}
+                    <input
+                      type="file"
+                      accept=".mp3,.wav,.m4a,.ogg,.webm,.flac"
+                      multiple
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        if (e.target.files?.length) addAudio(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                )}
                 {acceptsDocuments && (
                   <label style={{ ...button("secondary"), fontSize: 11 }}>
                     {documents.length ? "Add more documents…" : "Attach documents…"}
@@ -350,6 +418,11 @@ export function App() {
                 )}
               </div>
               {attachError && <div style={{ color: T.red, fontSize: 13 }}>{attachError}</div>}
+              {acceptsAudio && (
+                <div style={{ fontSize: 12, color: T.textMuted }}>
+                  recordings are transcribed on this machine (audio engine installs on first use)
+                </div>
+              )}
             </div>
           )}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
@@ -366,7 +439,7 @@ export function App() {
             ) : (
               <span style={{ fontSize: 12, color: T.textMuted }}>
                 This assignment takes {types.join(", ")} submissions — this version of the app can
-                practise text, documents and images.
+                practise text, documents, images and audio.
               </span>
             )}
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -389,6 +462,12 @@ export function App() {
           </div>
           {run.kind === "running" && (
             <p style={{ fontSize: 13, color: T.textMuted, marginTop: 10 }}>
+              {audioNote && (
+                <>
+                  {audioNote}
+                  <br />
+                </>
+              )}
               Running {runs} model run{runs !== 1 ? "s" : ""} — local models can take a few minutes. Your submission never
               leaves this machine except to the endpoint you chose.
             </p>

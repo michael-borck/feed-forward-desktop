@@ -56,14 +56,18 @@ export interface DocumentAttachment {
   data_base64: string;
 }
 
+/** Audio clips ride the same {name, data_base64} shape. */
+export type AudioAttachment = DocumentAttachment;
+
 /** Matches the sidecar API's per-request cap. */
 export const MAX_DOCUMENTS = 4;
+export const MAX_AUDIO = 2;
 
-/** What the engine can extract text from (mirrors its extract.py). */
-export const DOCUMENT_EXTENSIONS = [".pdf", ".docx", ".txt", ".md", ".markdown"];
+/** Audio formats the speech-analyser transcribes (content sniffed by ffmpeg). */
+export const AUDIO_EXTENSIONS = [".mp3", ".wav", ".m4a", ".ogg", ".webm", ".flac"];
 
-/** Read a document file (pdf/docx/text) as base64 for the engine to extract. */
-export function readDocumentFile(file: File): Promise<DocumentAttachment> {
+/** Read a file (document or audio) as base64 for the engine to process. */
+export function readAttachment(file: File): Promise<DocumentAttachment> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
@@ -75,6 +79,9 @@ export function readDocumentFile(file: File): Promise<DocumentAttachment> {
     reader.readAsDataURL(file);
   });
 }
+
+export const readDocumentFile = readAttachment;
+export const readAudioFile = readAttachment;
 
 export interface Level {
   label: string;
@@ -101,6 +108,7 @@ export interface FeedbackResult {
   word_count: number;
   image_count?: number;
   document_count?: number;
+  audio_count?: number;
   signals_included?: boolean;
 }
 

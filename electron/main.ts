@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import * as ollama from "./ollama";
-import { FirstRunPaths, isInstalled, runFirstRun, venvDir } from "./first-run";
+import { FirstRunPaths, installSpecs, isInstalled, runFirstRun, venvDir } from "./first-run";
 import { SidecarManager } from "./sidecar-manager";
 // Bundled at build time (single source of truth shared with electron-builder).
 import CONFIG from "../app.config.cjs";
@@ -20,6 +20,8 @@ const isDev = !app.isPackaged;
 let win: BrowserWindow | null = null;
 let sidecar: SidecarManager | null = null;
 let analysers: SidecarManager[] = [];
+let audioAnalyser: SidecarManager | null = null;
+let audioEnsure: Promise<string> | null = null;
 
 // E2E tests (scripts/e2e.mjs) point the app at a throwaway profile so they
 // never touch the user's real engine install, secrets, or history.
@@ -237,6 +239,39 @@ function registerIpc(): void {
     }
   });
   ipcMain.handle("ollama:detect", () => ollama.detect());
+
+  // Audio pack (speech-analyser): installed on demand the first time a
+  // student runs an audio rubric, then supervised like any other sidecar.
+  // Resolves the analyser's URL (passed per-request to the engine — the
+  // engine process predates the analyser). Concurrent callers share one
+  // install.
+  ipcMain.handle("audio:ensure", async (): Promise<string> => {
+    if (audioAnalyser?.status.phase === "ready") return audioAnalyser.url;
+    if (audioEnsure) return audioEnsure;
+    const doEnsure = (async () => {
+      const p = paths();
+      send("audio:log", "[audio] preparing the audio engine (first audio attempt only)…");
+      await installSpecs(p, [CONFIG.audio.pipSpec], (line) => send("audio:log", line));
+      const manager = new SidecarManager({
+        venvDir: venvDir(p),
+        serveCommand: CONFIG.audio.serveCommand,
+        healthPath: CONFIG.audio.healthPath,
+        defaultPort: CONFIG.audio.defaultPort,
+        // whisper models download on first use — generous startup budget
+        authTokenEnv: "FEEDFORWARD_AUDIO_ANALYSER_AUTH_TOKEN",
+        startupTimeoutMs: 300_000,
+      });
+      manager.on("log", (l: string) => send("audio:log", l));
+      await manager.start();
+      audioAnalyser = manager;
+      send("audio:log", "[audio] ready");
+      return manager.url;
+    })();
+    audioEnsure = doEnsure.finally(() => {
+      audioEnsure = null;
+    });
+    return audioEnsure;
+  });
   ipcMain.handle("ollama:pull", (_e, model: string) =>
     ollama.pull(model, CONFIG.ollama.recommendedModel, (prog) => send("ollama:progress", prog)),
   );
@@ -260,6 +295,7 @@ function registerIpc(): void {
 
 async function shutdown(): Promise<void> {
   for (const analyser of analysers) await analyser.stop();
+  if (audioAnalyser) await audioAnalyser.stop();
   if (sidecar) await sidecar.stop();
 }
 

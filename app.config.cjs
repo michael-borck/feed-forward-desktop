@@ -7,7 +7,7 @@ module.exports = {
   productName: "FeedForward Desktop",
 
   // --- Python sidecar (feedforward-practice serve) ---------------------------
-  sidecarPipSpecs: ["feedforward-practice[serve,documents]==0.5.0"],
+  sidecarPipSpecs: ["feedforward-practice[serve,documents]==0.6.0"],
   serveCommand: "feedforward-practice serve --port {PORT} --host {HOST}",
   healthPath: "/health",
   defaultPort: 8022,
@@ -38,6 +38,18 @@ module.exports = {
         defaultPort: 8024,
       },
     ],
+  },
+
+  // --- Audio pack (speech-analyser, installed on demand) --------------------
+  // NOT part of first run: faster-whisper + a whisper model (~150 MB) is too
+  // heavy for everyone. Installed the first time a student runs a rubric that
+  // declares audio; transcription is load-bearing, so a failed install is a
+  // clear error, not silent degradation.
+  audio: {
+    pipSpec: "speech-analyser==0.10.0",
+    serveCommand: "speech-analyser serve --port {PORT} --host {HOST}",
+    healthPath: "/health",
+    defaultPort: 8025,
   },
   // Provider (endpoint/key/model) is chosen in the UI per request, not forced
   // via env — students may use local Ollama, a remote Ollama behind a bearer
